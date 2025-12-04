@@ -2,17 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Class Tracker">
+  
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
   <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
+
+  <style>
+    body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+    button { touch-action: manipulation; } /* Fixes iOS tap delay */
+  </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
   <!-- TEST BUTTON -->
   <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse">
-      🔔 TEST NOTIFICATION (30s)
+    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
+      🔔 TEST NOTIFICATION
     </button>
   </div>
 
@@ -31,10 +42,7 @@
             self.registration.showNotification(e.data.title, {
               body: e.data.body,
               icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-              vibrate: [500, 250, 500],
-              tag: 'alert-' + Date.now(),
-              renotify: true,
-              requireInteraction: true
+              tag: 'alert-' + Date.now()
             });
           }
         });
@@ -43,31 +51,44 @@
       navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
+    // --- SAFETY WRAPPED NOTIFICATION ---
     function triggerPushNotification(title, body) {
-      document.getElementById('notif-sound').play().catch(()=>{});
-      if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-
-      if (Notification.permission === 'granted') {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
-        } else {
-          new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
+      try {
+        // Audio
+        const audio = document.getElementById('notif-sound');
+        if (audio) {
+            audio.currentTime = 0;
+            audio.play().catch(e => console.log("Audio skipped"));
         }
+        
+        // Vibrate
+        if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+
+        // Visual Notification
+        if (Notification.permission === 'granted') {
+          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
+          } else {
+            new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
+          }
+        }
+      } catch (err) {
+        console.error("Notification failed but app continued:", err);
       }
     }
 
     async function start30sTest() {
-      if (await Notification.requestPermission() !== 'granted') { alert("Enable Notifications!"); return; }
-      try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch(e){}
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { alert("Enable Notifications first!"); return; }
 
-      let timeLeft = 30;
+      let timeLeft = 5;
       const btn = document.getElementById('test-btn');
       btn.classList.remove('animate-pulse', 'bg-red-600');
       btn.classList.add('bg-yellow-500');
       
       const interval = setInterval(() => {
         timeLeft--;
-        btn.innerText = `⏳ MINIMIZE APP (${timeLeft}s)`;
+        btn.innerText = `⏳ KEEP SCREEN ON (${timeLeft}s)`;
         if (timeLeft <= 0) {
           clearInterval(interval);
           btn.innerText = "🔔 SENT!";
@@ -114,7 +135,6 @@
       let notificationQueue = [];
 
       todayClasses.forEach(className => {
-        // If we haven't touched this class yet today, mark it automatically
         if (todayAttended[className] === undefined) {
           todayAttended[className] = true;
           counts[className]++;
@@ -132,8 +152,9 @@
       if (hasChanges) {
         saveData();
         render();
+        // Send notification AFTER render is complete
         if (notificationQueue.length > 0) {
-          triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]);
+          setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]), 100);
         }
       }
     }
@@ -141,16 +162,31 @@
     function markAttendance(className, isAttending) {
       const prev = todayAttended[className];
       todayAttended[className] = isAttending;
+      let shouldNotify = false;
 
       if (isAttending) {
         if (prev !== true) counts[className]++;
-        if (counts[className] === 9) triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`);
+        
+        // CHECK FOR 9
+        if (counts[className] === 9) shouldNotify = true;
+        
+        // CHECK FOR 10 (Silent Reset)
         if (counts[className] >= 10) counts[className] = 0;
+
       } else {
         if (prev === true && counts[className] > 0) counts[className]--;
       }
+
+      // 1. SAVE & RENDER FIRST (Crucial for UI responsiveness)
       saveData();
       render();
+
+      // 2. NOTIFY SECOND (With slight delay to prevent UI freeze)
+      if (shouldNotify) {
+        setTimeout(() => {
+          triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`);
+        }, 50);
+      }
     }
 
     function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
@@ -158,9 +194,23 @@
     function saveEdit() {
       const val = parseInt(editValue) || 0;
       counts[editMode] = val;
-      if (val === 9) triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${editMode}`);
+      let shouldNotify = false;
+
+      if (val === 9) shouldNotify = true;
       if (val >= 10) counts[editMode] = 0;
-      editMode = null; saveData(); render();
+      
+      editMode = null; 
+      
+      // 1. SAVE & RENDER FIRST
+      saveData(); 
+      render();
+
+      // 2. NOTIFY SECOND
+      if (shouldNotify) {
+        setTimeout(() => {
+           triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`);
+        }, 50);
+      }
     }
 
     function render() {
@@ -179,8 +229,8 @@
                     '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
                 </div>
                 <div class="flex gap-2">
-                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[cls]===false ? 'bg-red-500 text-white shadow' : 'bg-white border text-slate-600'}">Missed</button>
-                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[cls]===true ? 'bg-green-500 text-white shadow' : 'bg-white border text-slate-600'}">Attended</button>
+                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border text-slate-600'}">Missed</button>
+                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm transition active:scale-95 ${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border text-slate-600'}">Attended</button>
                 </div>
               </div>
             `).join('') : '<p class="text-center text-slate-400">No classes today</p>'}
@@ -191,7 +241,7 @@
               <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
                 <div class="flex justify-between mb-1">
                   <span class="text-sm text-slate-500">${cls}</span>
-                  <button onclick="startEdit('${cls}')">✎</button>
+                  <button onclick="startEdit('${cls}')" class="p-2 -m-2 text-slate-400">✎</button>
                 </div>
                 ${editMode === cls ? `
                   <div class="flex gap-1">
@@ -216,10 +266,9 @@
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
     
-    // STARTUP SEQUENCE
     loadData();
     render();
-    setTimeout(autoAttendClasses, 200); // Check for auto-attendance 0.2s after load
+    setTimeout(autoAttendClasses, 200); 
   </script>
 </body>
 </html>
