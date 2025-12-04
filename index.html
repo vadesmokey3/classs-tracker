@@ -3,47 +3,115 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#4F46E5">
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="manifest" href='data:application/manifest+json,{
-    "name": "Class Tracker",
-    "short_name": "Tracker",
-    "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#4F46E5",
-    "icons": [{"src": "https://cdn-icons-png.flaticon.com/512/3389/3389081.png", "sizes": "192x192", "type": "image/png"}]
-  }' />
+  <!-- Basic Manifest -->
+  <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
+
+  <!-- 🚨 STATIC TEST BUTTON -->
+  <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl">
+    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl text-lg animate-pulse border-2 border-white shadow-lg">
+      🔔 TEST NOTIFICATION (30s)
+    </button>
+    <p class="text-indigo-200 text-xs text-center mt-2">1. Press Button  2. Press Home  3. Wait 30s</p>
+  </div>
+
+  <div id="app"></div>
   
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- ROBUST SERVICE WORKER SETUP ---
+    // --- ROBUST SERVICE WORKER (Force High Priority) ---
     if ('serviceWorker' in navigator) {
       const swCode = `
-        self.addEventListener('install', (event) => self.skipWaiting());
-        self.addEventListener('activate', (event) => self.clients.claim());
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('activate', (e) => self.clients.claim());
         
-        // This allows the SW to show notifications even when tab is backgrounded
-        self.addEventListener('message', (event) => {
-          if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-            self.registration.showNotification(event.data.title, event.data.options);
+        self.addEventListener('message', (e) => {
+          if (e.data && e.data.type === 'SHOW_NOTIFICATION') {
+            // FORCE VISUAL NOTIFICATION
+            self.registration.showNotification(e.data.title, {
+              body: e.data.body,
+              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
+              vibrate: [200, 100, 200, 100, 200], // Long vibration
+              tag: 'alert-' + Date.now(), // Unique tag forces new popup
+              renotify: true, // Forces phone to buzz again
+              requireInteraction: true, // Keeps it on screen
+              data: { url: self.location.origin } 
+            });
           }
+        });
+
+        self.addEventListener('notificationclick', function(event) {
+          event.notification.close();
+          event.waitUntil(clients.openWindow('.'));
         });
       `;
       const blob = new Blob([swCode], {type: 'application/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(blob))
-        .then(reg => console.log('SW Registered'))
-        .catch(err => console.error('SW Error', err));
+        .then(() => console.log("Service Worker Ready"));
     }
-  </script>
 
-  <div id="app"></div>
+    // --- NOTIFICATION TRIGGER ---
+    function triggerPushNotification(title, body) {
+      // 1. Audio (Always runs)
+      document.getElementById('notif-sound').play().catch(()=>{});
+      
+      // 2. Vibrate (Always runs)
+      if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
 
-  <script>
-    // --- CONFIGURATION ---
+      // 3. Visual Notification
+      if (Notification.permission === 'granted') {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          // Send to Service Worker (Best for background)
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title: title,
+            body: body
+          });
+        } else {
+          // Fallback
+          new Notification(title, {
+            body: body,
+            icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
+            vibrate: [500, 200, 500],
+            requireInteraction: true
+          });
+        }
+      }
+    }
+
+    function start30sTest() {
+      Notification.requestPermission().then(permission => {
+        if (permission !== 'granted') {
+          alert("PLEASE ENABLE NOTIFICATIONS IN BROWSER SETTINGS");
+          return;
+        }
+
+        let timeLeft = 30;
+        const btn = document.getElementById('test-btn');
+        btn.classList.remove('bg-red-600', 'animate-pulse');
+        btn.classList.add('bg-yellow-500');
+        
+        // Removed the alert() so it doesn't block the background process
+        
+        const interval = setInterval(() => {
+          timeLeft--;
+          btn.innerText = `⏳ EXIT APP NOW (${timeLeft}s)`;
+          
+          if (timeLeft <= 0) {
+            clearInterval(interval);
+            btn.innerText = "🔔 CHECK NOTIFICATIONS!";
+            btn.classList.add('bg-green-500');
+            triggerPushNotification("IT WORKS! 🚀", "This is the visual notification!");
+          }
+        }, 1000);
+      });
+    }
+
+    // --- APP LOGIC (Standard) ---
     const SCHEDULE = {
       1: ['Math', 'Economy'],
       2: ['Math', 'Essay', 'CS'],
@@ -56,80 +124,7 @@
     let todayAttended = {};
     let editMode = null;
     let editValue = '';
-    let testTimer = null;
 
-    // --- NOTIFICATION LOGIC ---
-    async function requestNotificationPermission() {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        new Notification('Enabled', { body: 'Notifications are on!', icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
-      } else {
-        alert("Permission denied. Check browser settings.");
-      }
-      render();
-    }
-
-    function triggerPushNotification(title, body) {
-      // Play sound
-      document.getElementById('notif-sound').play().catch(() => {});
-      
-      // Vibrate
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-
-      // Trigger System Notification
-      if (Notification.permission === 'granted') {
-        const options = {
-          body: body,
-          icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-          vibrate: [200, 100, 200],
-          requireInteraction: true // Keeps notification on screen until user dismisses
-        };
-
-        // Method 1: Service Worker (Best for Android/Background)
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            title: title,
-            options: options
-          });
-        } 
-        // Method 2: Standard API (Fallback)
-        else {
-          new Notification(title, options);
-        }
-      }
-    }
-
-    function start30sTest() {
-      if (Notification.permission !== 'granted') {
-        alert("Please enable notifications using the bell icon first.");
-        return;
-      }
-
-      let timeLeft = 30;
-      // Immediate visual feedback
-      const btn = document.getElementById('test-btn');
-      btn.innerText = `Wait ${timeLeft}s... (Minimize App Now)`;
-      btn.className = "w-full py-3 bg-yellow-500 text-white rounded-xl font-bold animate-pulse";
-      
-      alert("⏳ Timer Started!\n\n1. Press OK\n2. Press your phone's HOME button.\n3. DO NOT swipe the app closed.\n4. Wait 30 seconds.");
-
-      // Countdown logic
-      const interval = setInterval(() => {
-        timeLeft--;
-        if(document.getElementById('test-btn')) {
-           document.getElementById('test-btn').innerText = `Wait ${timeLeft}s... (Minimize App Now)`;
-        }
-        
-        if (timeLeft <= 0) {
-          clearInterval(interval);
-          triggerPushNotification("🔔 IT WORKS!", "This notification came through while you were away!");
-          render(); // Reset button
-        }
-      }, 1000);
-    }
-
-    // --- APP LOGIC ---
     function loadData() {
       const saved = localStorage.getItem('class-counts-v2');
       if (saved) counts = JSON.parse(saved);
@@ -182,60 +177,40 @@
     function render() {
       const dayOfWeek = new Date().getDay();
       const todayClasses = SCHEDULE[dayOfWeek] || [];
-      const notifState = Notification.permission;
-
+      
       document.getElementById('app').innerHTML = `
-        <div class="max-w-md mx-auto">
-          <!-- Header -->
-          <div class="bg-indigo-600 text-white p-6 pb-8 rounded-b-3xl shadow-lg mb-6">
-            <div class="flex justify-between items-center mb-4">
-              <h1 class="text-2xl font-bold">Class Tracker</h1>
-              <button onclick="requestNotificationPermission()" class="p-2 bg-indigo-500 rounded-full">
-                ${notifState === 'granted' ? '🔔 On' : '🔕 Enable'}
-              </button>
-            </div>
-            
-            <!-- TEST BUTTON -->
-            <button id="test-btn" onclick="start30sTest()" class="w-full py-3 bg-white text-indigo-600 rounded-xl font-bold shadow-md active:scale-95 transition">
-              ⏱ Test 30s Delay (Press & Minimize)
-            </button>
+        <div class="max-w-md mx-auto mt-4 px-4">
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
+            <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
+            ${todayClasses.length ? todayClasses.map(cls => `
+              <div class="flex items-center justify-between mb-3 p-2 bg-slate-50 rounded-lg">
+                <span class="font-medium">${cls}</span>
+                <div class="flex gap-2">
+                  <button onclick="markAttendance('${cls}', false)" class="${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Missed</button>
+                  <button onclick="markAttendance('${cls}', true)" class="${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Attended</button>
+                </div>
+              </div>
+            `).join('') : '<p class="text-center text-slate-400">No classes</p>'}
           </div>
 
-          <div class="px-4 space-y-6">
-            <!-- Schedule -->
-            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-              <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
-              ${todayClasses.length ? todayClasses.map(cls => `
-                <div class="flex items-center justify-between mb-3 p-2 bg-slate-50 rounded-lg">
-                  <span class="font-medium">${cls}</span>
-                  <div class="flex gap-2">
-                    <button onclick="markAttendance('${cls}', false)" class="${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Missed</button>
-                    <button onclick="markAttendance('${cls}', true)" class="${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Attended</button>
-                  </div>
+          <div class="grid grid-cols-2 gap-3">
+            ${CLASSES.map(cls => `
+              <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm text-slate-500">${cls}</span>
+                  <button onclick="startEdit('${cls}')">✎</button>
                 </div>
-              `).join('') : '<p class="text-center text-slate-400">No classes</p>'}
-            </div>
-
-            <!-- Stats -->
-            <div class="grid grid-cols-2 gap-3">
-              ${CLASSES.map(cls => `
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
-                  <div class="flex justify-between mb-1">
-                    <span class="text-sm text-slate-500">${cls}</span>
-                    <button onclick="startEdit('${cls}')">✎</button>
+                ${editMode === cls ? `
+                  <div class="flex gap-1">
+                    <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded px-1">
+                    <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
                   </div>
-                  ${editMode === cls ? `
-                    <div class="flex gap-1">
-                      <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded px-1">
-                      <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
-                    </div>
-                  ` : `
-                    <div class="text-3xl font-bold">${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span></div>
-                  `}
-                  <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
-                </div>
-              `).join('')}
-            </div>
+                ` : `
+                  <div class="text-3xl font-bold">${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span></div>
+                `}
+                <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
+              </div>
+            `).join('')}
           </div>
         </div>
       `;
@@ -243,7 +218,6 @@
 
     // Expose functions
     window.start30sTest = start30sTest;
-    window.requestNotificationPermission = requestNotificationPermission;
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
