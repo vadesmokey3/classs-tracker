@@ -3,269 +3,122 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <!-- THESE LINES FORCE "APP MODE" ON iPHONE -->
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Class Tracker">
-  <title>Class Tracker Debug</title>
+  
+  <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
+  
+  <!-- PWA MANIFEST (REQUIRED) -->
   <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
+
   <style>
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-    /* Console Style */
-    #console-log { font-family: monospace; font-size: 12px; line-height: 1.4; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
-  <!-- DIAGNOSTIC CONSOLE -->
-  <div class="bg-black text-green-400 p-4 sticky top-0 z-50 shadow-xl overflow-y-auto max-h-60 border-b-4 border-indigo-500">
-    <div class="flex justify-between items-center mb-2 border-b border-green-800 pb-2">
-      <h3 class="font-bold">🖥️ DIAGNOSTIC LOG</h3>
-      <button onclick="document.getElementById('console-log').innerHTML=''" class="text-xs bg-gray-800 px-2 py-1 rounded">Clear</button>
-    </div>
-    <div id="console-log" class="space-y-1">Waiting for user input...</div>
-    
-    <button onclick="runDiagnostics()" class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded text-sm border border-white">
-      ▶ START DIAGNOSTIC TEST
+  <!-- STATUS INDICATOR -->
+  <div id="status-bar" class="bg-red-600 text-white p-2 text-center text-xs font-bold">
+    MODE: BROWSER TAB (NOTIFICATIONS BLOCKED ❌)
+  </div>
+
+  <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
+    <button onclick="tryNotify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-xl text-lg shadow-lg">
+      🔔 ENABLE & TEST
     </button>
   </div>
 
   <div id="app" class="pt-4"></div>
-  
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- LOGGER FUNCTION ---
-    function log(msg, type = 'info') {
-      const consoleDiv = document.getElementById('console-log');
-      const time = new Date().toLocaleTimeString().split(' ')[0];
-      const color = type === 'error' ? 'text-red-400' : (type === 'success' ? 'text-white font-bold' : 'text-green-400');
-      consoleDiv.innerHTML += `<div class="${color}">[${time}] ${msg}</div>`;
-      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    // --- 1. DETECT MODE VISUALLY ---
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+    const bar = document.getElementById('status-bar');
+    
+    if (isStandalone) {
+      bar.innerHTML = "MODE: APP INSTALLED (READY ✅)";
+      bar.className = "bg-green-600 text-white p-2 text-center text-xs font-bold";
     }
 
-    // --- MAIN TEST FUNCTION ---
-    async function runDiagnostics() {
-      log('------------------------');
-      log('Starting System Check...', 'info');
-
-      // 1. Check iOS Environment
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-      const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-      
-      log(`Device: ${isIOS ? 'iOS Detected' : 'Not iOS'}`);
-      log(`Mode: ${isStandalone ? 'Home Screen App (Good)' : 'Browser Tab (Might Fail)'}`);
-
-      if (isIOS && !isStandalone) {
-        log('❌ WARNING: Notifications usually BLOCKED in Tabs. Add to Home Screen.', 'error');
-        alert("⚠️ WARNING: You are not using the Home Screen App. Notifications will likely fail.");
-      }
-
-      // 2. Check API Support
-      if (!('Notification' in window)) {
-        log('❌ CRITICAL: Notification API missing.', 'error');
-        log('Update to iOS 16.4+ is required.', 'error');
-        return;
-      }
-      log('API Support: OK');
-
-      // 3. Check Current Permission
-      const currentPerm = Notification.permission;
-      log(`Current Permission: "${currentPerm}"`);
-
-      if (currentPerm === 'denied') {
-        log('❌ BLOCKED: User denied permission previously.', 'error');
-        log('Fix: iOS Settings > Notifications > Class Tracker > ON', 'error');
-        alert("⛔ PERMISSION DENIED in Settings.");
-        return;
-      }
-
-      // 4. Request Permission
-      if (currentPerm === 'default') {
-        log('Requesting Permission now...', 'info');
-        try {
-          const perm = await Notification.requestPermission();
-          log(`User responded: "${perm}"`, perm === 'granted' ? 'success' : 'error');
-          if (perm !== 'granted') return;
-        } catch (e) {
-          log(`❌ Request Crashed: ${e.message}`, 'error');
-          return;
+    // --- 2. NOTIFICATION LOGIC ---
+    async function tryNotify() {
+      // Step 1: Request
+      try {
+        const p = await Notification.requestPermission();
+        if (p === 'granted') {
+          alert("✅ Permission Granted! Wait 5s...");
+          
+          // Step 2: Timer
+          setTimeout(() => {
+            trigger("Test Notification", "It works!");
+          }, 5000);
+        } else {
+          alert("❌ Permission Denied. Check Settings.");
         }
+      } catch (e) {
+        alert("⚠️ Error: " + e.message + "\n(This usually means you are not in App Mode)");
       }
+    }
 
-      // 5. Send Test
-      log('Attempting to send notification...', 'info');
+    function trigger(title, body) {
+      document.getElementById('notif-sound').play().catch(()=>{});
+      if(navigator.vibrate) navigator.vibrate([500]);
       
-      // Try Audio
-      const audio = document.getElementById('notif-sound');
-      if(audio) {
-        audio.play().then(() => log('Audio: Playing')).catch(e => log('Audio: Failed (User interaction needed)'));
-      }
-
-      // Try Service Worker (Preferred for iOS)
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        log('Sending via Service Worker...', 'info');
-        navigator.serviceWorker.controller.postMessage({
-          type: 'SHOW_NOTIFICATION',
-          title: 'DIAGNOSTIC TEST',
-          body: 'If you see this, it works!'
-        });
-        log('Signal Sent to SW.', 'success');
-      } 
-      // Fallback
-      else {
-        log('Service Worker not ready. Using Fallback.', 'info');
-        try {
-          new Notification('DIAGNOSTIC TEST', { body: 'Direct Notification' });
-          log('Direct Notification fired.', 'success');
-        } catch (e) {
-          log(`❌ Direct Fail: ${e.message}`, 'error');
-        }
+        navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
+      } else {
+        new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
       }
-
-      log('✅ TEST COMPLETE. Wait 5s for banner.', 'success');
     }
 
-    // --- SERVICE WORKER REGISTRATION ---
+    // --- SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
-      const swCode = `
-        self.addEventListener('install', (e) => self.skipWaiting());
-        self.addEventListener('activate', (e) => self.clients.claim());
-        self.addEventListener('message', (e) => {
-          if (e.data && e.data.type === 'SHOW_NOTIFICATION') {
-            self.registration.showNotification(e.data.title, {
-              body: e.data.body,
-              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'
-            }).catch(err => console.error('SW Notif Error:', err));
-          }
-        });
-      `;
+      const swCode = `self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('message',e=>{if(e.data.type==='SHOW_NOTIFICATION')self.registration.showNotification(e.data.title,{body:e.data.body,icon:'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'})});`;
       const blob = new Blob([swCode], {type: 'application/javascript'});
-      navigator.serviceWorker.register(URL.createObjectURL(blob))
-        .then(() => log('Service Worker: Registered', 'info'))
-        .catch(e => log(`SW Error: ${e.message}`, 'error'));
+      navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
-    // --- APP LOGIC (Hidden under console) ---
-    const SCHEDULE = { 1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'], 4: ['Economy'], 5: ['Essay', 'Math', 'CS'] };
-    const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
-    let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
-    let todayAttended = {};
-    let editMode = null, editValue = '';
+    // --- APP ---
+    const SCHEDULE={1:['Math','Economy'],2:['Math','Essay','CS'],3:['Math'],4:['Economy'],5:['Essay','Math','CS']};
+    const CLASSES=['Math','Economy','CS','Essay'];
+    let counts={Math:0,Economy:0,CS:0,Essay:0}, todayAttended={}, editMode=null, editValue='';
 
     function loadData() {
-      const saved = localStorage.getItem('class-counts-v2');
-      if (saved) counts = JSON.parse(saved);
-      const today = new Date().toDateString();
-      if (localStorage.getItem('last-date') !== today) {
-        todayAttended = {};
-        localStorage.setItem('today-attended-v2', JSON.stringify({}));
-        localStorage.setItem('last-date', today);
-      } else {
-        const savedToday = localStorage.getItem('today-attended-v2');
-        if (savedToday) todayAttended = JSON.parse(savedToday);
-      }
+      const s=localStorage.getItem('class-counts-v2'); if(s)counts=JSON.parse(s);
+      const t=new Date().toDateString();
+      if(localStorage.getItem('last-date')!==t) { todayAttended={}; localStorage.setItem('today-attended-v2',JSON.stringify({})); localStorage.setItem('last-date',t); }
+      else { const st=localStorage.getItem('today-attended-v2'); if(st)todayAttended=JSON.parse(st); }
     }
-
-    function saveData() {
-      localStorage.setItem('class-counts-v2', JSON.stringify(counts));
-      localStorage.setItem('today-attended-v2', JSON.stringify(todayAttended));
-    }
-
-    function autoAttendClasses() {
-      const dayOfWeek = new Date().getDay();
-      const todayClasses = SCHEDULE[dayOfWeek] || [];
-      let hasChanges = false;
-
-      todayClasses.forEach(className => {
-        if (todayAttended[className] === undefined) {
-          todayAttended[className] = true;
-          counts[className]++;
-          hasChanges = true;
-          if (counts[className] === 9) runDiagnostics(); // Trigger debug on event
-          if (counts[className] >= 10) counts[className] = 0;
-        }
-      });
-
-      if (hasChanges) {
-        saveData();
-        render();
-      }
-    }
-
-    function markAttendance(className, isAttending) {
-      const prev = todayAttended[className];
-      todayAttended[className] = isAttending;
-
-      if (isAttending) {
-        if (prev !== true) counts[className]++;
-        if (counts[className] === 9) runDiagnostics(); // Trigger debug
-        if (counts[className] >= 10) counts[className] = 0;
-      } else {
-        if (prev === true && counts[className] > 0) counts[className]--;
-      }
+    function saveData() { localStorage.setItem('class-counts-v2',JSON.stringify(counts)); localStorage.setItem('today-attended-v2',JSON.stringify(todayAttended)); }
+    
+    function markAttendance(c,a) {
+      const p=todayAttended[c]; todayAttended[c]=a;
+      if(a){ if(p!==true)counts[c]++; if(counts[c]===9)trigger('ΕΙΔΟΠΟΙΗΣΗ',`πληρωσε ${c}`); if(counts[c]>=10)counts[c]=0; }
+      else{ if(p===true&&counts[c]>0)counts[c]--; }
       saveData(); render();
     }
-
-    function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
-    function saveEdit() {
-      const val = parseInt(editValue) || 0;
-      counts[editMode] = val;
-      if (val === 9) runDiagnostics();
-      if (val >= 10) counts[editMode] = 0;
-      editMode = null; saveData(); render();
-    }
-
+    
     function render() {
-      const dayOfWeek = new Date().getDay();
-      const todayClasses = SCHEDULE[dayOfWeek] || [];
-      document.getElementById('app').innerHTML = `
+      const d=new Date().getDay(), tc=SCHEDULE[d]||[];
+      document.getElementById('app').innerHTML=`
         <div class="max-w-md mx-auto px-4">
-          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
-            <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
-            ${todayClasses.length ? todayClasses.map(cls => `
-              <div class="flex flex-col mb-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <div class="flex justify-between items-center mb-2">
-                  <span class="font-bold text-lg">${cls}</span>
-                  ${todayAttended[cls] === true ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
-                </div>
-                <div class="flex gap-2">
-                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm ${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border text-slate-600'}">Missed</button>
-                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm ${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border text-slate-600'}">Attended</button>
-                </div>
-              </div>
-            `).join('') : '<p class="text-center text-slate-400">No classes today</p>'}
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            ${CLASSES.map(cls => `
-              <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
-                <div class="flex justify-between mb-1">
-                  <span class="text-sm text-slate-500">${cls}</span>
-                  <button onclick="startEdit('${cls}')" class="p-2 -m-2 text-slate-400">✎</button>
-                </div>
-                ${editMode === cls ? `
-                  <div class="flex gap-1">
-                    <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded px-1">
-                    <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
-                  </div>
-                ` : `
-                  <div class="text-3xl font-bold ${counts[cls] === 9 ? 'text-red-600 animate-pulse' : 'text-slate-800'}">
-                    ${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span>
-                  </div>
-                `}
-                <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%" ></div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `;
+           <div class="bg-white p-4 rounded-xl shadow mb-4">
+             <h2 class="font-bold mb-2">Today</h2>
+             ${tc.map(c=>`<div class="flex justify-between mb-2 p-2 bg-slate-50 rounded"><span>${c}</span><div><button onclick="markAttendance('${c}',false)" class="px-2 border bg-white">Miss</button><button onclick="markAttendance('${c}',true)" class="px-2 border bg-white ml-2">Attend</button></div></div>`).join('')}
+           </div>
+           <div class="grid grid-cols-2 gap-2">
+             ${CLASSES.map(c=>`<div class="bg-white p-3 rounded shadow text-center"><div class="font-bold">${c}</div><div class="text-2xl">${counts[c]}/10</div></div>`).join('')}
+           </div>
+        </div>`;
     }
-
-    loadData();
-    render();
-    setTimeout(autoAttendClasses, 200);
+    loadData(); render();
   </script>
 </body>
 </html>
