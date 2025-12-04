@@ -1,3 +1,4 @@
+    
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,24 +7,30 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Class Tracker">
-  
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
   <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
-
   <style>
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-    button { touch-action: manipulation; } /* Fixes iOS tap delay */
+    button { touch-action: manipulation; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
+  <!-- iOS INSTALL HELP BANNER -->
+  <div id="ios-help" class="hidden bg-slate-800 text-white p-4 text-center">
+    <p class="font-bold text-yellow-400">⚠️ READ THIS</p>
+    <p class="text-sm mt-1">Notifications are blocked in Safari tabs.</p>
+    <p class="text-sm mt-2">1. Tap Share (<span class="text-xl">⎋</span>)</p>
+    <p class="text-sm">2. Tap <strong>"Add to Home Screen"</strong></p>
+    <p class="text-sm">3. Open the new app icon.</p>
+  </div>
+
   <!-- TEST BUTTON -->
   <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
-      🔔 TEST NOTIFICATION
+    <button onclick="debugNotificationTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
+      🔔 TEST PERMISSION
     </button>
   </div>
 
@@ -32,6 +39,83 @@
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
+    // --- CHECK IF INSTALLED ---
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+
+    // If on iOS but NOT installed, show the help banner
+    if (isIOS && !isStandalone) {
+      document.getElementById('ios-help').classList.remove('hidden');
+    }
+
+    // --- DIAGNOSTIC TEST FUNCTION ---
+    async function debugNotificationTest() {
+      // 1. Check if Browser supports it AT ALL
+      if (!('Notification' in window)) {
+        alert("❌ ERROR: Browser does not support notifications.\n\niPHONE FIX: Use Safari -> Add to Home Screen.");
+        return;
+      }
+
+      // 2. Check current status
+      if (Notification.permission === 'granted') {
+        alert("✅ SUCCESS: Permission is ALREADY granted.\n\nStarting 5s timer...");
+        runTimer();
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        alert("⛔ BLOCKED: You previously clicked 'Don't Allow'.\n\nGo to Settings -> Notifications -> Class Tracker -> Turn ON.");
+        return;
+      }
+
+      // 3. Try to ask (The popup part)
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          alert("🎉 PERMISSION GRANTED!\n\nStarting 5s timer...");
+          runTimer();
+        } else {
+          alert("❌ DENIED: You clicked cancel or closed the popup.");
+        }
+      } catch (e) {
+        alert("⚠️ CRASH: " + e.message + "\n\nAre you running this from the Home Screen?");
+      }
+    }
+
+    function runTimer() {
+      let timeLeft = 5;
+      const btn = document.getElementById('test-btn');
+      btn.className = "w-full bg-yellow-500 text-white font-bold py-3 rounded-xl text-lg shadow-lg";
+      
+      const interval = setInterval(() => {
+        timeLeft--;
+        btn.innerText = `⏳ WAIT ${timeLeft}s...`;
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          btn.innerText = "🔔 SENT!";
+          btn.className = "w-full bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg";
+          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "Test successful!");
+        }
+      }, 1000);
+    }
+
+    // --- NOTIFICATION SENDER ---
+    function triggerPushNotification(title, body) {
+      try {
+        const audio = document.getElementById('notif-sound');
+        if (audio) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+        
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
+        } else {
+          new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
+        }
+      } catch (e) {
+        // Silent fail
+      }
+    }
+
     // --- SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
       const swCode = `
@@ -41,8 +125,7 @@
           if (e.data && e.data.type === 'SHOW_NOTIFICATION') {
             self.registration.showNotification(e.data.title, {
               body: e.data.body,
-              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-              tag: 'alert-' + Date.now()
+              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'
             });
           }
         });
@@ -51,54 +134,7 @@
       navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
-    // --- SAFETY WRAPPED NOTIFICATION ---
-    function triggerPushNotification(title, body) {
-      try {
-        // Audio
-        const audio = document.getElementById('notif-sound');
-        if (audio) {
-            audio.currentTime = 0;
-            audio.play().catch(e => console.log("Audio skipped"));
-        }
-        
-        // Vibrate
-        if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-
-        // Visual Notification
-        if (Notification.permission === 'granted') {
-          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
-          } else {
-            new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
-          }
-        }
-      } catch (err) {
-        console.error("Notification failed but app continued:", err);
-      }
-    }
-
-    async function start30sTest() {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') { alert("Enable Notifications first!"); return; }
-
-      let timeLeft = 5;
-      const btn = document.getElementById('test-btn');
-      btn.classList.remove('animate-pulse', 'bg-red-600');
-      btn.classList.add('bg-yellow-500');
-      
-      const interval = setInterval(() => {
-        timeLeft--;
-        btn.innerText = `⏳ KEEP SCREEN ON (${timeLeft}s)`;
-        if (timeLeft <= 0) {
-          clearInterval(interval);
-          btn.innerText = "🔔 SENT!";
-          btn.classList.add('bg-green-500');
-          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "πληρωσε στο επομενο μαθημα την Math");
-        }
-      }, 1000);
-    }
-
-    // --- APP DATA ---
+    // --- APP LOGIC ---
     const SCHEDULE = {
       1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'],
       4: ['Economy'], 5: ['Essay', 'Math', 'CS']
@@ -152,7 +188,6 @@
       if (hasChanges) {
         saveData();
         render();
-        // Send notification AFTER render is complete
         if (notificationQueue.length > 0) {
           setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]), 100);
         }
@@ -166,26 +201,17 @@
 
       if (isAttending) {
         if (prev !== true) counts[className]++;
-        
-        // CHECK FOR 9
         if (counts[className] === 9) shouldNotify = true;
-        
-        // CHECK FOR 10 (Silent Reset)
         if (counts[className] >= 10) counts[className] = 0;
-
       } else {
         if (prev === true && counts[className] > 0) counts[className]--;
       }
 
-      // 1. SAVE & RENDER FIRST (Crucial for UI responsiveness)
       saveData();
       render();
 
-      // 2. NOTIFY SECOND (With slight delay to prevent UI freeze)
       if (shouldNotify) {
-        setTimeout(() => {
-          triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`);
-        }, 50);
+        setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 50);
       }
     }
 
@@ -195,21 +221,12 @@
       const val = parseInt(editValue) || 0;
       counts[editMode] = val;
       let shouldNotify = false;
-
       if (val === 9) shouldNotify = true;
       if (val >= 10) counts[editMode] = 0;
-      
       editMode = null; 
-      
-      // 1. SAVE & RENDER FIRST
-      saveData(); 
-      render();
-
-      // 2. NOTIFY SECOND
+      saveData(); render();
       if (shouldNotify) {
-        setTimeout(() => {
-           triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`);
-        }, 50);
+        setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 50);
       }
     }
 
@@ -261,14 +278,11 @@
       `;
     }
 
-    window.start30sTest = start30sTest;
-    window.markAttendance = markAttendance;
-    window.startEdit = startEdit;
-    window.saveEdit = saveEdit;
-    
     loadData();
     render();
     setTimeout(autoAttendClasses, 200); 
   </script>
 </body>
 </html>
+
+  
