@@ -1,4 +1,3 @@
-    
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,18 +17,22 @@
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
-  <!-- iOS INSTALL HELP BANNER -->
-  <div id="ios-help" class="hidden bg-slate-800 text-white p-4 text-center">
-    <p class="font-bold text-yellow-400">⚠️ READ THIS</p>
-    <p class="text-sm mt-1">Notifications are blocked in Safari tabs.</p>
-    <p class="text-sm mt-2">1. Tap Share (<span class="text-xl">⎋</span>)</p>
-    <p class="text-sm">2. Tap <strong>"Add to Home Screen"</strong></p>
-    <p class="text-sm">3. Open the new app icon.</p>
+  <!-- iOS INSTRUCTION BANNER -->
+  <div id="ios-guide" class="bg-slate-800 text-white p-4 text-center hidden">
+    <p class="font-bold text-yellow-400 text-lg">⚠️ STOP!</p>
+    <p class="mt-2">You are running this in a <strong>Browser Tab</strong>.</p>
+    <p class="mt-2">Apple <strong>BLOCKS</strong> notifications here.</p>
+    <div class="mt-4 bg-slate-700 p-3 rounded-lg text-left text-sm">
+      <p>1. Tap the <strong>Share Button</strong> <span class="text-xl">⎋</span></p>
+      <p>2. Scroll down & tap <strong>Add to Home Screen</strong></p>
+      <p>3. Close Safari.</p>
+      <p>4. Open the <strong>New Icon</strong> on your home screen.</p>
+    </div>
   </div>
 
   <!-- TEST BUTTON -->
   <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="debugNotificationTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
+    <button onclick="handleTestClick()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
       🔔 TEST PERMISSION
     </button>
   </div>
@@ -39,67 +42,64 @@
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- CHECK IF INSTALLED ---
+    // --- 1. DETECT IF IN APP MODE ---
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 
-    // If on iOS but NOT installed, show the help banner
+    // Show guide if in Safari Tab
     if (isIOS && !isStandalone) {
-      document.getElementById('ios-help').classList.remove('hidden');
+      document.getElementById('ios-guide').classList.remove('hidden');
+      document.getElementById('test-btn').innerText = "⚠️ READ INSTRUCTIONS ABOVE";
+      document.getElementById('test-btn').classList.remove('bg-red-600', 'animate-pulse');
+      document.getElementById('test-btn').classList.add('bg-slate-500');
     }
 
-    // --- DIAGNOSTIC TEST FUNCTION ---
-    async function debugNotificationTest() {
-      // 1. Check if Browser supports it AT ALL
-      if (!('Notification' in window)) {
-        alert("❌ ERROR: Browser does not support notifications.\n\niPHONE FIX: Use Safari -> Add to Home Screen.");
+    // --- 2. CLICK HANDLER ---
+    async function handleTestClick() {
+      if (isIOS && !isStandalone) {
+        alert("⛔️ STOP! \n\nYou are in a Safari Tab. Apple BLOCKS notifications here.\n\nPlease tap Share -> 'Add to Home Screen' and open the app icon.");
         return;
       }
 
-      // 2. Check current status
-      if (Notification.permission === 'granted') {
-        alert("✅ SUCCESS: Permission is ALREADY granted.\n\nStarting 5s timer...");
-        runTimer();
-        return;
-      }
-
-      if (Notification.permission === 'denied') {
-        alert("⛔ BLOCKED: You previously clicked 'Don't Allow'.\n\nGo to Settings -> Notifications -> Class Tracker -> Turn ON.");
-        return;
-      }
-
-      // 3. Try to ask (The popup part)
+      // If we are here, we are likely in App Mode
       try {
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
-          alert("🎉 PERMISSION GRANTED!\n\nStarting 5s timer...");
-          runTimer();
+          start30sTest();
         } else {
-          alert("❌ DENIED: You clicked cancel or closed the popup.");
+          alert("❌ PERMISSION DENIED\n\nYou might have clicked 'Don't Allow' before.\n\nGo to iPhone Settings -> Notifications -> Class Tracker -> Turn ON.");
         }
       } catch (e) {
-        alert("⚠️ CRASH: " + e.message + "\n\nAre you running this from the Home Screen?");
+        alert("Error: " + e.message);
       }
     }
 
-    function runTimer() {
+    // --- 3. THE ACTUAL TEST ---
+    function start30sTest() {
+      // Play silent audio to keep app awake
+      const audio = document.getElementById('notif-sound');
+      if(audio) { audio.volume = 0.1; audio.play().catch(()=>{}); }
+
       let timeLeft = 5;
       const btn = document.getElementById('test-btn');
-      btn.className = "w-full bg-yellow-500 text-white font-bold py-3 rounded-xl text-lg shadow-lg";
-      
+      btn.innerText = "⏳ KEEP APP OPEN (5s)...";
+      btn.className = "w-full bg-yellow-500 text-white font-bold py-3 rounded-xl shadow-lg";
+
       const interval = setInterval(() => {
         timeLeft--;
-        btn.innerText = `⏳ WAIT ${timeLeft}s...`;
         if (timeLeft <= 0) {
           clearInterval(interval);
           btn.innerText = "🔔 SENT!";
           btn.className = "w-full bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg";
-          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "Test successful!");
+          if(audio) audio.volume = 1.0;
+          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "Test Successful! ✅");
+        } else {
+          btn.innerText = `⏳ WAIT ${timeLeft}s...`;
         }
       }, 1000);
     }
 
-    // --- NOTIFICATION SENDER ---
+    // --- 4. NOTIFICATION LOGIC ---
     function triggerPushNotification(title, body) {
       try {
         const audio = document.getElementById('notif-sound');
@@ -112,7 +112,7 @@
           new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
         }
       } catch (e) {
-        // Silent fail
+        console.error(e);
       }
     }
 
@@ -135,15 +135,11 @@
     }
 
     // --- APP LOGIC ---
-    const SCHEDULE = {
-      1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'],
-      4: ['Economy'], 5: ['Essay', 'Math', 'CS']
-    };
+    const SCHEDULE = { 1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'], 4: ['Economy'], 5: ['Essay', 'Math', 'CS'] };
     const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
     let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
     let todayAttended = {};
-    let editMode = null;
-    let editValue = '';
+    let editMode = null, editValue = '';
 
     function loadData() {
       const saved = localStorage.getItem('class-counts-v2');
@@ -175,22 +171,15 @@
           todayAttended[className] = true;
           counts[className]++;
           hasChanges = true;
-
-          if (counts[className] === 9) {
-            notificationQueue.push(`πληρωσε στο επομενο μαθημα την ${className}`);
-          }
-          if (counts[className] >= 10) {
-            counts[className] = 0;
-          }
+          if (counts[className] === 9) notificationQueue.push(`πληρωσε στο επομενο μαθημα την ${className}`);
+          if (counts[className] >= 10) counts[className] = 0;
         }
       });
 
       if (hasChanges) {
         saveData();
         render();
-        if (notificationQueue.length > 0) {
-          setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]), 100);
-        }
+        if (notificationQueue.length > 0) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]), 100);
       }
     }
 
@@ -206,34 +195,23 @@
       } else {
         if (prev === true && counts[className] > 0) counts[className]--;
       }
-
-      saveData();
-      render();
-
-      if (shouldNotify) {
-        setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 50);
-      }
+      saveData(); render();
+      if (shouldNotify) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 50);
     }
 
     function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
-    
     function saveEdit() {
       const val = parseInt(editValue) || 0;
       counts[editMode] = val;
-      let shouldNotify = false;
-      if (val === 9) shouldNotify = true;
+      let shouldNotify = (val === 9);
       if (val >= 10) counts[editMode] = 0;
-      editMode = null; 
-      saveData(); render();
-      if (shouldNotify) {
-        setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 50);
-      }
+      editMode = null; saveData(); render();
+      if (shouldNotify) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 50);
     }
 
     function render() {
       const dayOfWeek = new Date().getDay();
       const todayClasses = SCHEDULE[dayOfWeek] || [];
-      
       document.getElementById('app').innerHTML = `
         <div class="max-w-md mx-auto mt-4 px-4">
           <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
@@ -242,8 +220,7 @@
               <div class="flex flex-col mb-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <div class="flex justify-between items-center mb-2">
                   <span class="font-bold text-lg">${cls}</span>
-                  ${todayAttended[cls] === true ? 
-                    '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
+                  ${todayAttended[cls] === true ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
                 </div>
                 <div class="flex gap-2">
                   <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border text-slate-600'}">Missed</button>
@@ -270,7 +247,7 @@
                     ${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span>
                   </div>
                 `}
-                <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
+                <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%" ></div>
               </div>
             `).join('')}
           </div>
@@ -280,9 +257,7 @@
 
     loadData();
     render();
-    setTimeout(autoAttendClasses, 200); 
+    setTimeout(autoAttendClasses, 200);
   </script>
 </body>
 </html>
-
-  
