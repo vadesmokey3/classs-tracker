@@ -11,10 +11,9 @@
 
   <!-- TEST BUTTON -->
   <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse">
+    <button onclick="start30sTest()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse">
       🔔 TEST NOTIFICATION (30s)
     </button>
-    <p class="text-indigo-200 text-xs mt-2">1. Press Button. 2. Press Home Button. 3. Wait.</p>
   </div>
 
   <div id="app"></div>
@@ -22,55 +21,43 @@
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. SERVICE WORKER ---
+    // --- SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
       const swCode = `
         self.addEventListener('install', (e) => self.skipWaiting());
         self.addEventListener('activate', (e) => self.clients.claim());
-        
         self.addEventListener('message', (e) => {
           if (e.data && e.data.type === 'SHOW_NOTIFICATION') {
             self.registration.showNotification(e.data.title, {
               body: e.data.body,
               icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-              badge: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-              vibrate: [500, 250, 500, 250, 500],
-              tag: 'payment-alert-' + Date.now(), 
+              vibrate: [500, 250, 500],
+              tag: 'alert-' + Date.now(),
               renotify: true,
-              requireInteraction: true 
+              requireInteraction: true
             });
           }
-        });
-
-        self.addEventListener('notificationclick', function(event) {
-          event.notification.close();
-          event.waitUntil(clients.openWindow(self.location.origin));
         });
       `;
       const blob = new Blob([swCode], {type: 'application/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
-    // --- 2. NOTIFICATION TRIGGER ---
     function triggerPushNotification(title, body) {
       document.getElementById('notif-sound').play().catch(()=>{});
       if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
 
       if (Notification.permission === 'granted') {
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION', title: title, body: body
-          });
+          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
         } else {
-          new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
+          new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
         }
       }
     }
 
-    // --- 3. TEST LOGIC ---
     async function start30sTest() {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') { alert("Allow notifications first!"); return; }
+      if (await Notification.requestPermission() !== 'granted') { alert("Enable Notifications!"); return; }
       try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch(e){}
 
       let timeLeft = 30;
@@ -80,17 +67,17 @@
       
       const interval = setInterval(() => {
         timeLeft--;
-        btn.innerText = `⏳ MINIMIZE APP NOW (${timeLeft}s)`;
+        btn.innerText = `⏳ MINIMIZE APP (${timeLeft}s)`;
         if (timeLeft <= 0) {
           clearInterval(interval);
-          btn.innerText = "🔔 NOTIFICATION SENT!";
+          btn.innerText = "🔔 SENT!";
           btn.classList.add('bg-green-500');
-          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ ΠΛΗΡΩΜΗΣ", "πληρωσε στο επομενο μαθημα την Math");
+          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "πληρωσε στο επομενο μαθημα την Math");
         }
       }, 1000);
     }
 
-    // --- 4. APP LOGIC ---
+    // --- APP DATA ---
     const SCHEDULE = {
       1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'],
       4: ['Economy'], 5: ['Essay', 'Math', 'CS']
@@ -127,16 +114,15 @@
       let notificationQueue = [];
 
       todayClasses.forEach(className => {
+        // If we haven't touched this class yet today, mark it automatically
         if (todayAttended[className] === undefined) {
           todayAttended[className] = true;
           counts[className]++;
           hasChanges = true;
 
-          // --- LOGIC CHANGE: NOTIFY AT 9 ---
           if (counts[className] === 9) {
             notificationQueue.push(`πληρωσε στο επομενο μαθημα την ${className}`);
           }
-          // Reset at 10 (Silent reset)
           if (counts[className] >= 10) {
             counts[className] = 0;
           }
@@ -147,8 +133,7 @@
         saveData();
         render();
         if (notificationQueue.length > 0) {
-          // Send notification for the first class that hit 9
-          triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ ΠΛΗΡΩΜΗΣ', notificationQueue[0]);
+          triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]);
         }
       }
     }
@@ -158,28 +143,12 @@
       todayAttended[className] = isAttending;
 
       if (isAttending) {
-        // Only increment if we weren't already attending
-        if (prev !== true) {
-            counts[className]++;
-        }
-
-        // --- LOGIC CHANGE: NOTIFY AT 9 ---
-        if (counts[className] === 9) {
-            triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ ΠΛΗΡΩΜΗΣ', `πληρωσε στο επομενο μαθημα την ${className}`);
-        }
-        
-        // Reset at 10
-        if (counts[className] >= 10) {
-            counts[className] = 0;
-        }
-
+        if (prev !== true) counts[className]++;
+        if (counts[className] === 9) triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`);
+        if (counts[className] >= 10) counts[className] = 0;
       } else {
-        // If unchecking "Attended", go down
-        if (prev === true && counts[className] > 0) {
-            counts[className]--;
-        }
+        if (prev === true && counts[className] > 0) counts[className]--;
       }
-
       saveData();
       render();
     }
@@ -187,18 +156,10 @@
     function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
     
     function saveEdit() {
-      const newValue = parseInt(editValue) || 0;
-      counts[editMode] = newValue;
-      
-      // If manual edit hits 9, notify
-      if (newValue === 9) {
-        triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ ΠΛΗΡΩΜΗΣ', `πληρωσε στο επομενο μαθημα την ${editMode}`);
-      }
-      // If manual edit hits 10+, reset
-      if (newValue >= 10) {
-        counts[editMode] = 0;
-      }
-      
+      const val = parseInt(editValue) || 0;
+      counts[editMode] = val;
+      if (val === 9) triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${editMode}`);
+      if (val >= 10) counts[editMode] = 0;
       editMode = null; saveData(); render();
     }
 
@@ -211,14 +172,18 @@
           <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
             <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
             ${todayClasses.length ? todayClasses.map(cls => `
-              <div class="flex items-center justify-between mb-3 p-2 bg-slate-50 rounded-lg">
-                <span class="font-medium">${cls}</span>
+              <div class="flex flex-col mb-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div class="flex justify-between items-center mb-2">
+                  <span class="font-bold text-lg">${cls}</span>
+                  ${todayAttended[cls] === true ? 
+                    '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
+                </div>
                 <div class="flex gap-2">
-                  <button onclick="markAttendance('${cls}', false)" class="${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Missed</button>
-                  <button onclick="markAttendance('${cls}', true)" class="${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Attended</button>
+                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[cls]===false ? 'bg-red-500 text-white shadow' : 'bg-white border text-slate-600'}">Missed</button>
+                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[cls]===true ? 'bg-green-500 text-white shadow' : 'bg-white border text-slate-600'}">Attended</button>
                 </div>
               </div>
-            `).join('') : '<p class="text-center text-slate-400">No classes</p>'}
+            `).join('') : '<p class="text-center text-slate-400">No classes today</p>'}
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -246,14 +211,15 @@
       `;
     }
 
-    // Init
     window.start30sTest = start30sTest;
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
+    
+    // STARTUP SEQUENCE
     loadData();
     render();
-    setTimeout(autoAttendClasses, 500);
+    setTimeout(autoAttendClasses, 200); // Check for auto-attendance 0.2s after load
   </script>
 </body>
 </html>
