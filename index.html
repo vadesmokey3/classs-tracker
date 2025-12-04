@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   
-  <!-- iOS SETTINGS -->
+  <!-- iOS & PWA SETTINGS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,123 +13,243 @@
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- LINK TO THE NEW MANIFEST FILE -->
+  <!-- LINK TO YOUR MANIFEST FILE -->
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
 
   <style>
+    /* iOS visual tweaks */
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+    /* Smooth hiding */
+    .hidden { display: none; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
-  <!-- STATUS BAR -->
-  <div id="status-bar" class="bg-red-600 text-white p-3 text-center text-xs font-bold uppercase tracking-wider">
-    Not Installed (Notifications Blocked)
-  </div>
-
-  <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="tryNotify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-xl text-lg shadow-lg active:scale-95 transition-transform">
-      🔔 ENABLE & TEST
-    </button>
-  </div>
-
-  <div id="app" class="pt-4"></div>
+  <div id="app" class="max-w-md mx-auto"></div>
+  
+  <!-- Audio for notification sound -->
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. DETECT APP MODE ---
-    // If this turns GREEN on your phone, you fixed it.
-    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-    const bar = document.getElementById('status-bar');
-    
-    if (isStandalone) {
-      bar.innerHTML = "✅ APP MODE ACTIVE (NOTIFICATIONS ALLOWED)";
-      bar.className = "bg-green-600 text-white p-3 text-center text-xs font-bold uppercase tracking-wider";
-    }
-
-    // --- 2. NOTIFICATION LOGIC ---
-    async function tryNotify() {
-      // Diagnostic Alert
-      if (!isStandalone) {
-        alert("⚠️ STOP: The top bar is RED.\n\n1. Delete the old icon.\n2. Tap Share -> Add to Home Screen.\n3. Open the NEW icon.");
-        return; // Don't even try, it will fail.
-      }
-
+    // --- 1. NOTIFICATION SYSTEM ---
+    async function requestPermission() {
       try {
         const p = await Notification.requestPermission();
         if (p === 'granted') {
-          alert("✅ PERMISSION GRANTED!\n\nI will send a test notification in 5 seconds. \n\nDO NOT CLOSE THE APP.");
-          setTimeout(() => {
-            trigger("Test Success", "If you see this, you are done!");
-          }, 5000);
+          triggerNotification("Setup Complete", "Notifications are active! ✅");
+          render(); // Re-render to hide the bell button
         } else {
-          alert("❌ PERMISSION DENIED.\nGo to iPhone Settings -> Notifications -> Tracker -> Turn ON.");
+          alert("Notifications blocked. Check iPhone Settings.");
         }
       } catch (e) {
-        alert("Error: " + e.message);
+        alert("Error: Add app to Home Screen first.");
       }
     }
 
-    function trigger(title, body) {
-      document.getElementById('notif-sound').play().catch(()=>{});
-      if(navigator.vibrate) navigator.vibrate([500]);
+    function triggerNotification(title, body) {
+      // Audio
+      const audio = document.getElementById('notif-sound');
+      if (audio) { audio.currentTime = 0; audio.play().catch(()=>{}); }
       
+      // Vibrate
+      if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+      
+      // Visual
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
-      } else {
+      } else if (Notification.permission === 'granted') {
         new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
       }
     }
 
-    // --- SERVICE WORKER ---
+    // --- 2. SERVICE WORKER ---
     if ('serviceWorker' in navigator) {
       const swCode = `self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('message',e=>{if(e.data.type==='SHOW_NOTIFICATION')self.registration.showNotification(e.data.title,{body:e.data.body,icon:'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'})});`;
       const blob = new Blob([swCode], {type: 'application/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
-    // --- APP ---
-    const SCHEDULE={1:['Math','Economy'],2:['Math','Essay','CS'],3:['Math'],4:['Economy'],5:['Essay','Math','CS']};
-    const CLASSES=['Math','Economy','CS','Essay'];
-    let counts={Math:0,Economy:0,CS:0,Essay:0}, todayAttended={}, editMode=null, editValue='';
+    // --- 3. APP DATA & LOGIC ---
+    const SCHEDULE = {
+      1: ['Math', 'Economy'], 
+      2: ['Math', 'Essay', 'CS'], 
+      3: ['Math'], 
+      4: ['Economy'], 
+      5: ['Essay', 'Math', 'CS']
+    };
+    const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
+    let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
+    let todayAttended = {};
+    let editMode = null;
+    let editValue = '';
 
     function loadData() {
-      const s=localStorage.getItem('class-counts-v2'); if(s)counts=JSON.parse(s);
-      const t=new Date().toDateString();
-      if(localStorage.getItem('last-date')!==t) { todayAttended={}; localStorage.setItem('today-attended-v2',JSON.stringify({})); localStorage.setItem('last-date',t); }
-      else { const st=localStorage.getItem('today-attended-v2'); if(st)todayAttended=JSON.parse(st); }
-    }
-    function saveData() { localStorage.setItem('class-counts-v2',JSON.stringify(counts)); localStorage.setItem('today-attended-v2',JSON.stringify(todayAttended)); }
-    
-    function markAttendance(c,a) {
-      const p=todayAttended[c]; todayAttended[c]=a;
-      if(a){ if(p!==true)counts[c]++; if(counts[c]===9)trigger('ΕΙΔΟΠΟΙΗΣΗ',`πληρωσε ${c}`); if(counts[c]>=10)counts[c]=0; }
-      else{ if(p===true&&counts[c]>0)counts[c]--; }
-      saveData(); render();
+      const saved = localStorage.getItem('class-counts-v2');
+      if (saved) counts = JSON.parse(saved);
+      
+      const today = new Date().toDateString();
+      const lastDate = localStorage.getItem('last-date');
+      
+      if (lastDate !== today) {
+        todayAttended = {};
+        localStorage.setItem('today-attended-v2', JSON.stringify({}));
+        localStorage.setItem('last-date', today);
+      } else {
+        const savedToday = localStorage.getItem('today-attended-v2');
+        if (savedToday) todayAttended = JSON.parse(savedToday);
+      }
     }
 
-    function startEdit(c) { editMode=c; editValue=counts[c]; render(); }
-    function saveEdit() {
-      const v=parseInt(editValue)||0; counts[editMode]=v;
-      if(v===9)trigger('ΕΙΔΟΠΟΙΗΣΗ',`πληρωσε ${editMode}`); if(v>=10)counts[editMode]=0;
-      editMode=null; saveData(); render();
+    function saveData() {
+      localStorage.setItem('class-counts-v2', JSON.stringify(counts));
+      localStorage.setItem('today-attended-v2', JSON.stringify(todayAttended));
     }
+
+    function autoAttendClasses() {
+      const dayOfWeek = new Date().getDay();
+      const todayClasses = SCHEDULE[dayOfWeek] || [];
+      let hasChanges = false;
+      let notifyFor = null;
+
+      todayClasses.forEach(className => {
+        if (todayAttended[className] === undefined) {
+          todayAttended[className] = true;
+          counts[className]++;
+          hasChanges = true;
+
+          // NOTIFY AT 9
+          if (counts[className] === 9) notifyFor = className;
+          
+          // SILENT RESET AT 10
+          if (counts[className] >= 10) counts[className] = 0;
+        }
+      });
+
+      if (hasChanges) {
+        saveData();
+        render();
+        if (notifyFor) setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${notifyFor}`), 500);
+      }
+    }
+
+    function markAttendance(className, isAttending) {
+      const prev = todayAttended[className];
+      todayAttended[className] = isAttending;
+      let shouldNotify = false;
+
+      if (isAttending) {
+        if (prev !== true) counts[className]++;
+        
+        // Notify at 9
+        if (counts[className] === 9) shouldNotify = true;
+        
+        // Reset at 10
+        if (counts[className] >= 10) counts[className] = 0;
+      } else {
+        if (prev === true && counts[className] > 0) counts[className]--;
+      }
+
+      saveData();
+      render();
+      
+      if (shouldNotify) {
+        setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 100);
+      }
+    }
+
+    function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
     
-    function render() {
-      const d=new Date().getDay(), tc=SCHEDULE[d]||[];
-      document.getElementById('app').innerHTML=`
-        <div class="max-w-md mx-auto px-4">
-           <div class="bg-white p-4 rounded-xl shadow mb-4">
-             <h2 class="font-bold mb-2">Today</h2>
-             ${tc.map(c=>`<div class="flex justify-between mb-2 p-2 bg-slate-50 rounded"><span>${c}</span><div><button onclick="markAttendance('${c}',false)" class="px-2 border bg-white">Miss</button><button onclick="markAttendance('${c}',true)" class="px-2 border bg-white ml-2">Attend</button></div></div>`).join('')}
-           </div>
-           <div class="grid grid-cols-2 gap-2">
-             ${CLASSES.map(c=>`<div class="bg-white p-3 rounded shadow text-center relative"><div class="flex justify-between text-xs absolute w-full px-2 left-0 top-1"><span>${c}</span><span onclick="startEdit('${c}')">✎</span></div>${editMode===c?`<div class="mt-4"><input type="number" value="${editValue}" oninput="editValue=this.value" class="border w-12 text-center"><button onclick="saveEdit()" class="ml-1 bg-blue-500 text-white px-1">✓</button></div>`:`<div class="text-3xl font-bold mt-2">${counts[c]}/10</div>`}</div>`).join('')}
-           </div>
-        </div>`;
+    function saveEdit() {
+      const val = parseInt(editValue) || 0;
+      counts[editMode] = val;
+      
+      let shouldNotify = (val === 9);
+      if (val >= 10) counts[editMode] = 0;
+      
+      editMode = null; 
+      saveData(); 
+      render();
+      
+      if (shouldNotify) {
+        setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 100);
+      }
     }
-    loadData(); render();
+
+    // --- 4. RENDER UI ---
+    function render() {
+      const dayOfWeek = new Date().getDay();
+      const todayClasses = SCHEDULE[dayOfWeek] || [];
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      // Check if permission is needed (to show/hide bell icon)
+      const needsPerm = Notification.permission !== 'granted';
+
+      document.getElementById('app').innerHTML = `
+        <!-- HEADER -->
+        <div class="bg-indigo-900 text-white p-6 rounded-b-3xl shadow-lg mb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold">Class Tracker</h1>
+                <p class="text-indigo-200 text-sm">${dayNames[dayOfWeek]}</p>
+            </div>
+            ${needsPerm ? `
+            <button onclick="requestPermission()" class="bg-yellow-500 text-white p-2 rounded-full shadow-lg animate-bounce">
+                🔔
+            </button>` : ''}
+        </div>
+
+        <div class="px-4">
+           <!-- TODAY'S SCHEDULE -->
+           <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
+             <h2 class="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                📅 Today's Classes
+             </h2>
+             ${todayClasses.length ? todayClasses.map(cls => `
+               <div class="flex flex-col mb-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                 <div class="flex justify-between items-center mb-2">
+                   <span class="font-bold text-lg">${cls}</span>
+                   ${todayAttended[cls] === true ? 
+                     '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
+                 </div>
+                 <div class="flex gap-2">
+                   <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white shadow' : 'bg-white border text-slate-600'}">Missed</button>
+                   <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===true ? 'bg-green-500 text-white shadow' : 'bg-white border text-slate-600'}">Attended</button>
+                 </div>
+               </div>
+             `).join('') : '<p class="text-center text-slate-400 py-4">No classes today! 😴</p>'}
+           </div>
+
+           <!-- COUNTERS -->
+           <div class="grid grid-cols-2 gap-3 mb-10">
+             ${CLASSES.map(cls => `
+               <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden group">
+                 <div class="flex justify-between mb-1 items-start">
+                   <span class="text-sm font-semibold text-slate-500">${cls}</span>
+                   <button onclick="startEdit('${cls}')" class="text-slate-300 p-1 hover:text-indigo-500">✎</button>
+                 </div>
+                 
+                 ${editMode === cls ? `
+                   <div class="flex gap-1 items-center mt-2">
+                     <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded p-1 text-center font-bold">
+                     <button onclick="saveEdit()" class="bg-indigo-500 text-white px-3 py-1 rounded font-bold">✓</button>
+                   </div>
+                 ` : `
+                   <div class="text-3xl font-bold mt-1 ${counts[cls] === 9 ? 'text-red-600 animate-pulse' : 'text-slate-800'}">
+                     ${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span>
+                   </div>
+                 `}
+                 <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
+               </div>
+             `).join('')}
+           </div>
+        </div>
+      `;
+    }
+
+    // --- INITIALIZE ---
+    loadData();
+    render();
+    setTimeout(autoAttendClasses, 200);
   </script>
 </body>
 </html>
