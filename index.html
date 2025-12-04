@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   
-  <!-- THESE LINES FORCE "APP MODE" ON iPHONE -->
+  <!-- iOS SETTINGS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Class Tracker">
+  <meta name="apple-mobile-web-app-title" content="Tracker">
   
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
   
-  <!-- PWA MANIFEST (REQUIRED) -->
-  <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
+  <!-- LINK TO THE NEW MANIFEST FILE -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
 
   <style>
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
@@ -23,13 +23,13 @@
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
-  <!-- STATUS INDICATOR -->
-  <div id="status-bar" class="bg-red-600 text-white p-2 text-center text-xs font-bold">
-    MODE: BROWSER TAB (NOTIFICATIONS BLOCKED ❌)
+  <!-- STATUS BAR -->
+  <div id="status-bar" class="bg-red-600 text-white p-3 text-center text-xs font-bold uppercase tracking-wider">
+    Not Installed (Notifications Blocked)
   </div>
 
   <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="tryNotify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-xl text-lg shadow-lg">
+    <button onclick="tryNotify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-xl text-lg shadow-lg active:scale-95 transition-transform">
       🔔 ENABLE & TEST
     </button>
   </div>
@@ -38,32 +38,36 @@
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. DETECT MODE VISUALLY ---
+    // --- 1. DETECT APP MODE ---
+    // If this turns GREEN on your phone, you fixed it.
     const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
     const bar = document.getElementById('status-bar');
     
     if (isStandalone) {
-      bar.innerHTML = "MODE: APP INSTALLED (READY ✅)";
-      bar.className = "bg-green-600 text-white p-2 text-center text-xs font-bold";
+      bar.innerHTML = "✅ APP MODE ACTIVE (NOTIFICATIONS ALLOWED)";
+      bar.className = "bg-green-600 text-white p-3 text-center text-xs font-bold uppercase tracking-wider";
     }
 
     // --- 2. NOTIFICATION LOGIC ---
     async function tryNotify() {
-      // Step 1: Request
+      // Diagnostic Alert
+      if (!isStandalone) {
+        alert("⚠️ STOP: The top bar is RED.\n\n1. Delete the old icon.\n2. Tap Share -> Add to Home Screen.\n3. Open the NEW icon.");
+        return; // Don't even try, it will fail.
+      }
+
       try {
         const p = await Notification.requestPermission();
         if (p === 'granted') {
-          alert("✅ Permission Granted! Wait 5s...");
-          
-          // Step 2: Timer
+          alert("✅ PERMISSION GRANTED!\n\nI will send a test notification in 5 seconds. \n\nDO NOT CLOSE THE APP.");
           setTimeout(() => {
-            trigger("Test Notification", "It works!");
+            trigger("Test Success", "If you see this, you are done!");
           }, 5000);
         } else {
-          alert("❌ Permission Denied. Check Settings.");
+          alert("❌ PERMISSION DENIED.\nGo to iPhone Settings -> Notifications -> Tracker -> Turn ON.");
         }
       } catch (e) {
-        alert("⚠️ Error: " + e.message + "\n(This usually means you are not in App Mode)");
+        alert("Error: " + e.message);
       }
     }
 
@@ -104,6 +108,13 @@
       else{ if(p===true&&counts[c]>0)counts[c]--; }
       saveData(); render();
     }
+
+    function startEdit(c) { editMode=c; editValue=counts[c]; render(); }
+    function saveEdit() {
+      const v=parseInt(editValue)||0; counts[editMode]=v;
+      if(v===9)trigger('ΕΙΔΟΠΟΙΗΣΗ',`πληρωσε ${editMode}`); if(v>=10)counts[editMode]=0;
+      editMode=null; saveData(); render();
+    }
     
     function render() {
       const d=new Date().getDay(), tc=SCHEDULE[d]||[];
@@ -114,7 +125,7 @@
              ${tc.map(c=>`<div class="flex justify-between mb-2 p-2 bg-slate-50 rounded"><span>${c}</span><div><button onclick="markAttendance('${c}',false)" class="px-2 border bg-white">Miss</button><button onclick="markAttendance('${c}',true)" class="px-2 border bg-white ml-2">Attend</button></div></div>`).join('')}
            </div>
            <div class="grid grid-cols-2 gap-2">
-             ${CLASSES.map(c=>`<div class="bg-white p-3 rounded shadow text-center"><div class="font-bold">${c}</div><div class="text-2xl">${counts[c]}/10</div></div>`).join('')}
+             ${CLASSES.map(c=>`<div class="bg-white p-3 rounded shadow text-center relative"><div class="flex justify-between text-xs absolute w-full px-2 left-0 top-1"><span>${c}</span><span onclick="startEdit('${c}')">✎</span></div>${editMode===c?`<div class="mt-4"><input type="number" value="${editValue}" oninput="editValue=this.value" class="border w-12 text-center"><button onclick="saveEdit()" class="ml-1 bg-blue-500 text-white px-1">✓</button></div>`:`<div class="text-3xl font-bold mt-2">${counts[c]}/10</div>`}</div>`).join('')}
            </div>
         </div>`;
     }
