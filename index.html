@@ -2,16 +2,68 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4F46E5">
+  
+  <!-- iOS Support -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Class Tracker">
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
+
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Inline Manifest for Android PWA Support -->
+  <link rel="manifest" href='data:application/manifest+json,{
+    "name": "Class Tracker",
+    "short_name": "Tracker",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#4F46E5",
+    "icons": [{
+      "src": "https://cdn-icons-png.flaticon.com/512/3389/3389081.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }]
+  }' />
+
+  <style>
+    /* Prevent pull-to-refresh on mobile to feel like an app */
+    body { overscroll-behavior-y: none; }
+    /* Smooth animations */
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
 </head>
-<body>
+<body class="bg-slate-100 min-h-screen text-slate-800">
   <div id="app"></div>
 
+  <!-- Audio Sound for Notifications -->
+  <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
   <script>
+    // --- 1. SERVICE WORKER REGISTRATION (Crucial for Mobile) ---
+    if ('serviceWorker' in navigator) {
+      // Create a virtual service worker file from a string
+      const swCode = `
+        self.addEventListener('install', (event) => self.skipWaiting());
+        self.addEventListener('activate', (event) => self.clients.claim());
+        self.addEventListener('notificationclick', (event) => {
+          event.notification.close();
+          event.waitUntil(clients.openWindow('.'));
+        });
+      `;
+      const blob = new Blob([swCode], {type: 'application/javascript'});
+      const swUrl = URL.createObjectURL(blob);
+      
+      navigator.serviceWorker.register(swUrl)
+        .then(() => console.log('Service Worker Active'))
+        .catch(err => console.error('SW Fail:', err));
+    }
+
+    // --- 2. APP LOGIC ---
     const SCHEDULE = {
       1: ['Math', 'Economy'],
       2: ['Math', 'Essay', 'CS'],
@@ -21,48 +73,67 @@
     };
 
     const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
-
     let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
     let todayAttended = {};
     let editMode = null;
     let editValue = '';
-    let notification = null;
-    let notificationPermission = 'default';
+    let showModal = null; // For the "10 Reached" Popup
 
-    // Request notification permission
+    // Request Permission
     async function requestNotificationPermission() {
-      if ('Notification' in window) {
-        const permission = await Notification.requestPermission();
-        notificationPermission = permission;
-        render();
-        
-        if (permission === 'granted') {
-           sendPushNotification('Notifications enabled! 🎉');
-        }
+      if (!('Notification' in window)) {
+        alert("This browser does not support notifications.");
+        return;
+      }
+      
+      const permission = await Notification.requestPermission();
+      render();
+      
+      if (permission === 'granted') {
+        triggerNotification('Test Notification', 'Notifications are working! 🚀');
       }
     }
 
-    function sendPushNotification(message) {
-      // Show in-app notification banner
-      showNotification(message);
+    // Advanced Notification Handler
+    function triggerNotification(title, body) {
+      // 1. Play Sound
+      const audio = document.getElementById('notif-sound');
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.log("Audio blocked (interaction needed)"));
+      }
+
+      // 2. Vibrate Phone
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+      // 3. Show Visual Modal (Fallback if system notification fails)
+      showModal = body; 
       
-      // Send actual browser notification
-      // NOTE: This requires the site to be served via HTTPS or localhost, not file://
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          new Notification('Class Tracker', {
-            body: message,
-            icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png', // Uses a generic book icon URL
-            vibrate: [200, 100, 200]
+      // 4. Send System Notification
+      if (Notification.permission === 'granted') {
+        // Try Service Worker method (Best for Mobile)
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification(title, {
+              body: body,
+              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
+              vibrate: [200, 100, 200],
+              tag: 'class-tracker'
+            });
           });
-        } catch (e) {
-          console.log('Notification failed:', e);
+        } else {
+          // PC Fallback
+          new Notification(title, {
+            body: body,
+            icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'
+          });
         }
       }
+      render();
     }
 
     function loadData() {
-      const saved = localStorage.getItem('class-counts');
+      const saved = localStorage.getItem('class-counts-v2');
       if (saved) counts = JSON.parse(saved);
 
       const today = new Date().toDateString();
@@ -70,21 +141,17 @@
 
       if (lastDate !== today) {
         todayAttended = {};
-        localStorage.setItem('today-attended', JSON.stringify({}));
+        localStorage.setItem('today-attended-v2', JSON.stringify({}));
         localStorage.setItem('last-date', today);
       } else {
-        const savedToday = localStorage.getItem('today-attended');
+        const savedToday = localStorage.getItem('today-attended-v2');
         if (savedToday) todayAttended = JSON.parse(savedToday);
-      }
-
-      if ('Notification' in window) {
-        notificationPermission = Notification.permission;
       }
     }
 
     function saveData() {
-      localStorage.setItem('class-counts', JSON.stringify(counts));
-      localStorage.setItem('today-attended', JSON.stringify(todayAttended));
+      localStorage.setItem('class-counts-v2', JSON.stringify(counts));
+      localStorage.setItem('today-attended-v2', JSON.stringify(todayAttended));
     }
 
     function getTodayClasses() {
@@ -95,6 +162,7 @@
     function autoAttendClasses() {
       const todayClasses = getTodayClasses();
       let hasChanges = false;
+      let notificationQueue = [];
 
       todayClasses.forEach(className => {
         if (todayAttended[className] === undefined) {
@@ -102,8 +170,8 @@
           counts[className]++;
           hasChanges = true;
 
-          if (counts[className] === 10) {
-            sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
+          if (counts[className] >= 10) {
+            notificationQueue.push(className);
             counts[className] = 0;
           }
         }
@@ -112,21 +180,34 @@
       if (hasChanges) {
         saveData();
         render();
+        // Wait slightly for interaction before notifying (Browser policy)
+        if (notificationQueue.length > 0) {
+          setTimeout(() => {
+             triggerNotification('Congratulations! 🎉', `${notificationQueue.join(', ')} reached 10 attendances!`);
+          }, 1000);
+        }
       }
     }
 
-    function markAttendance(className, attended) {
-      todayAttended[className] = attended;
+    // Logic: Attended = true (Count Up), Missed = false (Count Down)
+    function markAttendance(className, isAttending) {
+      const previousState = todayAttended[className];
+      todayAttended[className] = isAttending;
 
-      if (attended) {
-        counts[className]++;
-        if (counts[className] === 10) {
-          sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
+      if (isAttending) {
+        // If changing from Missed/Null to Attended -> +1
+        if (previousState !== true) {
+            counts[className]++;
+        }
+        
+        // Check Limit
+        if (counts[className] >= 10) {
+          triggerNotification('Goal Reached! 🏆', `Awesome! ${className} reached 10 attendances.`);
           counts[className] = 0;
         }
       } else {
-        // Prevent going below zero if logic allows
-        if(counts[className] > 0) {
+        // If changing from Attended/Null to Missed -> -1
+        if (previousState === true && counts[className] > 0) {
             counts[className]--;
         }
       }
@@ -139,18 +220,15 @@
       editMode = className;
       editValue = counts[className].toString();
       render();
-      setTimeout(() => {
-        const input = document.getElementById('edit-input');
-        if (input) input.focus();
-      }, 0);
+      setTimeout(() => document.getElementById('edit-input')?.focus(), 50);
     }
 
     function saveEdit() {
       const newValue = parseInt(editValue) || 0;
       counts[editMode] = newValue;
       
-      if (newValue === 10) {
-        sendPushNotification(`🎉 ${editMode} has reached 10 attendances!`);
+      if (newValue >= 10) {
+        triggerNotification('Manual Update ✍️', `${editMode} set to 10 (Resetting to 0)`);
         counts[editMode] = 0;
       }
       
@@ -159,183 +237,145 @@
       render();
     }
 
-    function showNotification(message) {
-      notification = message;
+    function closeModal() {
+      showModal = null;
       render();
-      setTimeout(() => {
-        notification = null;
-        render();
-      }, 4000);
     }
 
     function render() {
       const todayClasses = getTodayClasses();
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const today = dayNames[new Date().getDay()];
+      const notifState = Notification.permission;
 
       const app = document.getElementById('app');
       app.innerHTML = `
-        <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-          <div class="max-w-2xl mx-auto">
-            
-            <!-- Header -->
-            <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-              <h1 class="text-3xl font-bold text-gray-800 mb-2">Class Tracker</h1>
-              <p class="text-gray-600">${today}</p>
+        <div class="max-w-md mx-auto min-h-screen pb-20 relative">
+          
+          <!-- Header -->
+          <div class="bg-indigo-600 text-white p-6 pb-12 rounded-b-3xl shadow-lg">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-3xl font-bold">Class Tracker</h1>
+                    <p class="opacity-80">${today}</p>
+                </div>
+                <!-- Permission Icon -->
+                <button onclick="requestNotificationPermission()" class="p-2 bg-indigo-500 rounded-full hover:bg-indigo-400 transition">
+                    ${notifState === 'granted' ? '🔔' : '🔕'}
+                </button>
             </div>
+          </div>
 
-            <!-- Notification Permission Banner -->
-            ${notificationPermission === 'default' ? `
-              <div class="bg-blue-500 text-white rounded-xl p-4 mb-6 shadow-lg">
-                <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div class="flex items-center">
-                    <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                    </svg>
-                    <span class="font-medium text-sm sm:text-base">Enable push notifications for alerts!</span>
-                  </div>
-                  <button onclick="requestNotificationPermission()" class="w-full sm:w-auto px-4 py-2 bg-white text-blue-500 rounded-lg font-semibold hover:bg-blue-50">
-                    Enable
-                  </button>
-                </div>
-              </div>
-            ` : notificationPermission === 'denied' ? `
-              <div class="bg-red-500 text-white rounded-xl p-4 mb-6 shadow-lg">
-                <div class="flex items-center">
-                  <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                  <span class="text-sm">Notifications blocked. Check browser settings.</span>
-                </div>
-              </div>
-            ` : `
-              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 shadow-lg hidden">
-                <div class="flex items-center">
-                  <span class="font-medium">✓ Push notifications enabled!</span>
-                </div>
-              </div>
-            `}
-
-            <!-- Notification Banner (In-App) -->
-            ${notification ? `
-              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg animate-pulse">
-                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                </svg>
-                <span class="font-medium">${notification}</span>
+          <!-- Content Container -->
+          <div class="px-4 -mt-8">
+            
+            <!-- Warning for iOS -->
+            ${!window.navigator.standalone && /iPhone|iPad|iPod/.test(navigator.userAgent) ? `
+              <div class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 rounded shadow-sm text-sm">
+                <p><strong>Tip:</strong> Tap <span class="text-xl">⎋</span> Share -> "Add to Home Screen" for best performance.</p>
               </div>
             ` : ''}
 
-            <!-- Today's Classes -->
-            ${todayClasses.length > 0 ? `
-              <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Today's Classes</h2>
-                <div class="space-y-3">
-                  ${todayClasses.map(className => `
-                    <div class="flex flex-col sm:flex-row items-center justify-between p-4 bg-blue-50 rounded-xl gap-3">
-                      <span class="font-semibold text-gray-800 text-lg">${className}</span>
-                      <div class="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                        ${todayAttended[className] === false ? `
-                          <span class="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600">✗ Missed</span>
-                        ` : todayAttended[className] === true ? `
-                          <span class="px-4 py-2 rounded-lg font-medium bg-green-100 text-green-700">✓ Auto-counted</span>
-                        ` : `
-                          <span class="px-4 py-2 rounded-lg font-medium bg-blue-50 text-blue-700">⏳ Counting...</span>
-                        `}
-                        
-                        <!-- FIX: The logic here was inverted. We check if it is CURRENTLY missed (false). 
-                             If it is false, we want to set it to true (Attended). 
-                             If it is true, we want to set it to false (Missed). -->
+            <!-- Today's Classes Card -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-6 fade-in">
+              <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                Today's Schedule
+              </h2>
+              
+              <div class="space-y-3">
+                ${todayClasses.length > 0 ? todayClasses.map(className => `
+                  <div class="flex flex-col p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold text-lg text-slate-700">${className}</span>
+                        ${todayAttended[className] === true 
+                            ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">Attended</span>' 
+                            : todayAttended[className] === false 
+                                ? '<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full">Missed</span>'
+                                : '<span class="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded-full">Pending</span>'
+                        }
+                    </div>
+                    
+                    <div class="flex gap-2">
                         <button 
-                          onclick="markAttendance('${className}', ${todayAttended[className] === false})"
-                          class="flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                            todayAttended[className] === false
-                              ? 'bg-green-500 text-white hover:bg-green-600'
-                              : 'bg-red-500 text-white hover:bg-red-600'
-                          }"
+                          onclick="markAttendance('${className}', false)"
+                          class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[className] === false ? 'bg-red-500 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-red-50'}"
                         >
-                          ${todayAttended[className] === false ? `
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            Attended
-                          ` : `
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            Missed
-                          `}
+                          Missed
                         </button>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              </div>
-            ` : `
-              <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
-                <p class="text-gray-600 text-center">No classes today! 🎉</p>
-              </div>
-            `}
-
-            <!-- All Classes Counter -->
-            <div class="bg-white rounded-2xl shadow-lg p-6">
-              <h2 class="text-xl font-bold text-gray-800 mb-4">Attendance Count</h2>
-              <div class="grid grid-cols-2 gap-4">
-                ${CLASSES.map(className => `
-                  <div class="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl">
-                    <div class="flex items-center justify-between mb-2">
-                      <span class="font-semibold text-gray-800">${className}</span>
-                      <button onclick="startEdit('${className}')" class="text-gray-500 hover:text-indigo-600 transition">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
-                        </svg>
-                      </button>
-                    </div>
-                    ${editMode === className ? `
-                      <div class="flex gap-2">
-                        <input 
-                          id="edit-input"
-                          type="number" 
-                          value="${editValue}"
-                          oninput="editValue = this.value"
-                          class="w-full px-2 py-1 border border-gray-300 rounded"
-                        />
-                        <button onclick="saveEdit()" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm">
-                          Save
+                        <button 
+                          onclick="markAttendance('${className}', true)"
+                          class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[className] === true ? 'bg-green-500 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-green-50'}"
+                        >
+                          Attended
                         </button>
-                      </div>
-                    ` : `
-                      <div class="text-3xl font-bold text-indigo-600">${counts[className]}/10</div>
-                    `}
-                    <div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div class="h-full bg-indigo-500 transition-all duration-500" style="width: ${(counts[className] / 10) * 100}%"></div>
                     </div>
                   </div>
-                `).join('')}
+                `).join('') : '<p class="text-slate-500 text-center py-4">No classes today! 😴</p>'}
               </div>
             </div>
 
-            <!-- Instructions -->
-            <div class="mt-6 text-center text-sm text-gray-600">
-              <p>Classes are counted automatically each day.</p>
-              <p>Toggle "Missed"/"Attended" button to adjust count.</p>
-              <p>Click the pencil icon to manually edit numbers.</p>
+            <!-- Stats Grid -->
+            <h2 class="text-lg font-bold text-slate-800 mb-3 ml-1">Progress</h2>
+            <div class="grid grid-cols-2 gap-3 mb-8">
+                ${CLASSES.map(className => `
+                  <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
+                    <div class="relative z-10">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-sm font-medium text-slate-500">${className}</span>
+                            <button onclick="startEdit('${className}')" class="text-slate-300 hover:text-indigo-500">✎</button>
+                        </div>
+                        
+                        ${editMode === className ? `
+                            <div class="flex items-center gap-1">
+                                <input id="edit-input" type="number" value="${editValue}" oninput="editValue=this.value" class="w-full text-lg border rounded p-1">
+                                <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
+                            </div>
+                        ` : `
+                            <div class="text-3xl font-extrabold text-slate-800">
+                                ${counts[className]}<span class="text-sm text-slate-400 font-normal">/10</span>
+                            </div>
+                        `}
+                    </div>
+                    
+                    <!-- Progress Bar Background -->
+                    <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width: ${(counts[className] / 10) * 100}%"></div>
+                  </div>
+                `).join('')}
             </div>
           </div>
+
+          <!-- Custom Modal Alert (Guaranteed to show on mobile) -->
+          ${showModal ? `
+            <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center transform scale-100">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                        🎉
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-800 mb-2">Target Reached!</h3>
+                    <p class="text-slate-600 mb-6">${showModal}</p>
+                    <button onclick="closeModal()" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 active:scale-95 transition">
+                        Awesome!
+                    </button>
+                </div>
+            </div>
+          ` : ''}
+
         </div>
       `;
     }
 
-    // Make functions globally accessible
+    // Expose functions
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
     window.requestNotificationPermission = requestNotificationPermission;
+    window.saveEdit = saveEdit;
+    window.closeModal = closeModal;
 
-    // Initialize
+    // Init
     loadData();
     render();
-    setTimeout(autoAttendClasses, 100);
+    setTimeout(autoAttendClasses, 500); // Slight delay for smoother load
   </script>
 </body>
 </html>
