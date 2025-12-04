@@ -27,6 +27,39 @@
     let editMode = null;
     let editValue = '';
     let notification = null;
+    let notificationPermission = 'default';
+
+    // Request notification permission
+    async function requestNotificationPermission() {
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission();
+        notificationPermission = permission;
+        render();
+        
+        if (permission === 'granted') {
+           sendPushNotification('Notifications enabled! 🎉');
+        }
+      }
+    }
+
+    function sendPushNotification(message) {
+      // Show in-app notification banner
+      showNotification(message);
+      
+      // Send actual browser notification
+      // NOTE: This requires the site to be served via HTTPS or localhost, not file://
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Class Tracker', {
+            body: message,
+            icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png', // Uses a generic book icon URL
+            vibrate: [200, 100, 200]
+          });
+        } catch (e) {
+          console.log('Notification failed:', e);
+        }
+      }
+    }
 
     function loadData() {
       const saved = localStorage.getItem('class-counts');
@@ -42,6 +75,10 @@
       } else {
         const savedToday = localStorage.getItem('today-attended');
         if (savedToday) todayAttended = JSON.parse(savedToday);
+      }
+
+      if ('Notification' in window) {
+        notificationPermission = Notification.permission;
       }
     }
 
@@ -66,7 +103,7 @@
           hasChanges = true;
 
           if (counts[className] === 10) {
-            showNotification(`🎉 ${className} has reached 10 attendances!`);
+            sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
             counts[className] = 0;
           }
         }
@@ -84,11 +121,14 @@
       if (attended) {
         counts[className]++;
         if (counts[className] === 10) {
-          showNotification(`🎉 ${className} has reached 10 attendances!`);
+          sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
           counts[className] = 0;
         }
       } else {
-        counts[className]--;
+        // Prevent going below zero if logic allows
+        if(counts[className] > 0) {
+            counts[className]--;
+        }
       }
 
       saveData();
@@ -106,7 +146,14 @@
     }
 
     function saveEdit() {
-      counts[editMode] = parseInt(editValue) || 0;
+      const newValue = parseInt(editValue) || 0;
+      counts[editMode] = newValue;
+      
+      if (newValue === 10) {
+        sendPushNotification(`🎉 ${editMode} has reached 10 attendances!`);
+        counts[editMode] = 0;
+      }
+      
       editMode = null;
       saveData();
       render();
@@ -137,9 +184,41 @@
               <p class="text-gray-600">${today}</p>
             </div>
 
-            <!-- Notification -->
+            <!-- Notification Permission Banner -->
+            ${notificationPermission === 'default' ? `
+              <div class="bg-blue-500 text-white rounded-xl p-4 mb-6 shadow-lg">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                    </svg>
+                    <span class="font-medium text-sm sm:text-base">Enable push notifications for alerts!</span>
+                  </div>
+                  <button onclick="requestNotificationPermission()" class="w-full sm:w-auto px-4 py-2 bg-white text-blue-500 rounded-lg font-semibold hover:bg-blue-50">
+                    Enable
+                  </button>
+                </div>
+              </div>
+            ` : notificationPermission === 'denied' ? `
+              <div class="bg-red-500 text-white rounded-xl p-4 mb-6 shadow-lg">
+                <div class="flex items-center">
+                  <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="text-sm">Notifications blocked. Check browser settings.</span>
+                </div>
+              </div>
+            ` : `
+              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 shadow-lg hidden">
+                <div class="flex items-center">
+                  <span class="font-medium">✓ Push notifications enabled!</span>
+                </div>
+              </div>
+            `}
+
+            <!-- Notification Banner (In-App) -->
             ${notification ? `
-              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg">
+              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg animate-pulse">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                 </svg>
@@ -153,9 +232,9 @@
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Today's Classes</h2>
                 <div class="space-y-3">
                   ${todayClasses.map(className => `
-                    <div class="flex items-center justify-between p-4 bg-blue-50 rounded-xl">
-                      <span class="font-semibold text-gray-800">${className}</span>
-                      <div class="flex items-center gap-3">
+                    <div class="flex flex-col sm:flex-row items-center justify-between p-4 bg-blue-50 rounded-xl gap-3">
+                      <span class="font-semibold text-gray-800 text-lg">${className}</span>
+                      <div class="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                         ${todayAttended[className] === false ? `
                           <span class="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600">✗ Missed</span>
                         ` : todayAttended[className] === true ? `
@@ -163,8 +242,12 @@
                         ` : `
                           <span class="px-4 py-2 rounded-lg font-medium bg-blue-50 text-blue-700">⏳ Counting...</span>
                         `}
+                        
+                        <!-- FIX: The logic here was inverted. We check if it is CURRENTLY missed (false). 
+                             If it is false, we want to set it to true (Attended). 
+                             If it is true, we want to set it to false (Missed). -->
                         <button 
-                          onclick="markAttendance('${className}', ${todayAttended[className] !== false})"
+                          onclick="markAttendance('${className}', ${todayAttended[className] === false})"
                           class="flex items-center gap-2 px-4 py-2 rounded-lg transition ${
                             todayAttended[className] === false
                               ? 'bg-green-500 text-white hover:bg-green-600'
@@ -215,7 +298,7 @@
                           type="number" 
                           value="${editValue}"
                           oninput="editValue = this.value"
-                          class="w-20 px-2 py-1 border border-gray-300 rounded"
+                          class="w-full px-2 py-1 border border-gray-300 rounded"
                         />
                         <button onclick="saveEdit()" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm">
                           Save
@@ -236,7 +319,7 @@
             <div class="mt-6 text-center text-sm text-gray-600">
               <p>Classes are counted automatically each day.</p>
               <p>Toggle "Missed"/"Attended" button to adjust count.</p>
-              <p>Click the edit icon to manually adjust counts anytime.</p>
+              <p>Click the pencil icon to manually edit numbers.</p>
             </div>
           </div>
         </div>
@@ -247,6 +330,7 @@
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
+    window.requestNotificationPermission = requestNotificationPermission;
 
     // Initialize
     loadData();
