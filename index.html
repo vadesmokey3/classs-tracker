@@ -4,66 +4,46 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#4F46E5">
-  
-  <!-- iOS Support -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Class Tracker">
-  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
-
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Inline Manifest for Android PWA Support -->
   <link rel="manifest" href='data:application/manifest+json,{
     "name": "Class Tracker",
     "short_name": "Tracker",
-    "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#4F46E5",
-    "icons": [{
-      "src": "https://cdn-icons-png.flaticon.com/512/3389/3389081.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    }]
+    "icons": [{"src": "https://cdn-icons-png.flaticon.com/512/3389/3389081.png", "sizes": "192x192", "type": "image/png"}]
   }' />
-
-  <style>
-    /* Prevent pull-to-refresh on mobile to feel like an app */
-    body { overscroll-behavior-y: none; }
-    /* Smooth animations */
-    .fade-in { animation: fadeIn 0.3s ease-in; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800">
-  <div id="app"></div>
-
-  <!-- Audio Sound for Notifications -->
+<body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
+  
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. SERVICE WORKER REGISTRATION (Crucial for Mobile) ---
+    // --- ROBUST SERVICE WORKER SETUP ---
     if ('serviceWorker' in navigator) {
-      // Create a virtual service worker file from a string
       const swCode = `
         self.addEventListener('install', (event) => self.skipWaiting());
         self.addEventListener('activate', (event) => self.clients.claim());
-        self.addEventListener('notificationclick', (event) => {
-          event.notification.close();
-          event.waitUntil(clients.openWindow('.'));
+        
+        // This allows the SW to show notifications even when tab is backgrounded
+        self.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+            self.registration.showNotification(event.data.title, event.data.options);
+          }
         });
       `;
       const blob = new Blob([swCode], {type: 'application/javascript'});
-      const swUrl = URL.createObjectURL(blob);
-      
-      navigator.serviceWorker.register(swUrl)
-        .then(() => console.log('Service Worker Active'))
-        .catch(err => console.error('SW Fail:', err));
+      navigator.serviceWorker.register(URL.createObjectURL(blob))
+        .then(reg => console.log('SW Registered'))
+        .catch(err => console.error('SW Error', err));
     }
+  </script>
 
-    // --- 2. APP LOGIC ---
+  <div id="app"></div>
+
+  <script>
+    // --- CONFIGURATION ---
     const SCHEDULE = {
       1: ['Math', 'Economy'],
       2: ['Math', 'Essay', 'CS'],
@@ -71,75 +51,90 @@
       4: ['Economy'],
       5: ['Essay', 'Math', 'CS']
     };
-
     const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
     let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
     let todayAttended = {};
     let editMode = null;
     let editValue = '';
-    let showModal = null; // For the "10 Reached" Popup
+    let testTimer = null;
 
-    // Request Permission
+    // --- NOTIFICATION LOGIC ---
     async function requestNotificationPermission() {
-      if (!('Notification' in window)) {
-        alert("This browser does not support notifications.");
-        return;
-      }
-      
       const permission = await Notification.requestPermission();
-      render();
-      
       if (permission === 'granted') {
-        triggerNotification('Test Notification', 'Notifications are working! 🚀');
+        new Notification('Enabled', { body: 'Notifications are on!', icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
+      } else {
+        alert("Permission denied. Check browser settings.");
       }
+      render();
     }
 
-    // Advanced Notification Handler
-    function triggerNotification(title, body) {
-      // 1. Play Sound
-      const audio = document.getElementById('notif-sound');
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(e => console.log("Audio blocked (interaction needed)"));
-      }
-
-      // 2. Vibrate Phone
+    function triggerPushNotification(title, body) {
+      // Play sound
+      document.getElementById('notif-sound').play().catch(() => {});
+      
+      // Vibrate
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
 
-      // 3. Show Visual Modal (Fallback if system notification fails)
-      showModal = body; 
-      
-      // 4. Send System Notification
+      // Trigger System Notification
       if (Notification.permission === 'granted') {
-        // Try Service Worker method (Best for Mobile)
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.ready.then(registration => {
-            registration.showNotification(title, {
-              body: body,
-              icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
-              vibrate: [200, 100, 200],
-              tag: 'class-tracker'
-            });
+        const options = {
+          body: body,
+          icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png',
+          vibrate: [200, 100, 200],
+          requireInteraction: true // Keeps notification on screen until user dismisses
+        };
+
+        // Method 1: Service Worker (Best for Android/Background)
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title: title,
+            options: options
           });
-        } else {
-          // PC Fallback
-          new Notification(title, {
-            body: body,
-            icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'
-          });
+        } 
+        // Method 2: Standard API (Fallback)
+        else {
+          new Notification(title, options);
         }
       }
-      render();
     }
 
+    function start30sTest() {
+      if (Notification.permission !== 'granted') {
+        alert("Please enable notifications using the bell icon first.");
+        return;
+      }
+
+      let timeLeft = 30;
+      // Immediate visual feedback
+      const btn = document.getElementById('test-btn');
+      btn.innerText = `Wait ${timeLeft}s... (Minimize App Now)`;
+      btn.className = "w-full py-3 bg-yellow-500 text-white rounded-xl font-bold animate-pulse";
+      
+      alert("⏳ Timer Started!\n\n1. Press OK\n2. Press your phone's HOME button.\n3. DO NOT swipe the app closed.\n4. Wait 30 seconds.");
+
+      // Countdown logic
+      const interval = setInterval(() => {
+        timeLeft--;
+        if(document.getElementById('test-btn')) {
+           document.getElementById('test-btn').innerText = `Wait ${timeLeft}s... (Minimize App Now)`;
+        }
+        
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          triggerPushNotification("🔔 IT WORKS!", "This notification came through while you were away!");
+          render(); // Reset button
+        }
+      }, 1000);
+    }
+
+    // --- APP LOGIC ---
     function loadData() {
       const saved = localStorage.getItem('class-counts-v2');
       if (saved) counts = JSON.parse(saved);
-
       const today = new Date().toDateString();
-      const lastDate = localStorage.getItem('last-date');
-
-      if (lastDate !== today) {
+      if (localStorage.getItem('last-date') !== today) {
         todayAttended = {};
         localStorage.setItem('today-attended-v2', JSON.stringify({}));
         localStorage.setItem('last-date', today);
@@ -154,228 +149,107 @@
       localStorage.setItem('today-attended-v2', JSON.stringify(todayAttended));
     }
 
-    function getTodayClasses() {
-      const dayOfWeek = new Date().getDay();
-      return SCHEDULE[dayOfWeek] || [];
-    }
-
-    function autoAttendClasses() {
-      const todayClasses = getTodayClasses();
-      let hasChanges = false;
-      let notificationQueue = [];
-
-      todayClasses.forEach(className => {
-        if (todayAttended[className] === undefined) {
-          todayAttended[className] = true;
-          counts[className]++;
-          hasChanges = true;
-
-          if (counts[className] >= 10) {
-            notificationQueue.push(className);
-            counts[className] = 0;
-          }
-        }
-      });
-
-      if (hasChanges) {
-        saveData();
-        render();
-        // Wait slightly for interaction before notifying (Browser policy)
-        if (notificationQueue.length > 0) {
-          setTimeout(() => {
-             triggerNotification('Congratulations! 🎉', `${notificationQueue.join(', ')} reached 10 attendances!`);
-          }, 1000);
-        }
-      }
-    }
-
-    // Logic: Attended = true (Count Up), Missed = false (Count Down)
     function markAttendance(className, isAttending) {
-      const previousState = todayAttended[className];
+      const prev = todayAttended[className];
       todayAttended[className] = isAttending;
-
-      if (isAttending) {
-        // If changing from Missed/Null to Attended -> +1
-        if (previousState !== true) {
-            counts[className]++;
-        }
-        
-        // Check Limit
+      if (isAttending && prev !== true) {
+        counts[className]++;
         if (counts[className] >= 10) {
-          triggerNotification('Goal Reached! 🏆', `Awesome! ${className} reached 10 attendances.`);
+          triggerPushNotification('Goal Reached! 🏆', `${className} hit 10 attendances!`);
           counts[className] = 0;
         }
-      } else {
-        // If changing from Attended/Null to Missed -> -1
-        if (previousState === true && counts[className] > 0) {
-            counts[className]--;
-        }
+      } else if (!isAttending && prev === true && counts[className] > 0) {
+        counts[className]--;
       }
-
       saveData();
       render();
     }
 
     function startEdit(className) {
       editMode = className;
-      editValue = counts[className].toString();
+      editValue = counts[className];
       render();
-      setTimeout(() => document.getElementById('edit-input')?.focus(), 50);
     }
 
     function saveEdit() {
-      const newValue = parseInt(editValue) || 0;
-      counts[editMode] = newValue;
-      
-      if (newValue >= 10) {
-        triggerNotification('Manual Update ✍️', `${editMode} set to 10 (Resetting to 0)`);
-        counts[editMode] = 0;
-      }
-      
+      counts[editMode] = parseInt(editValue) || 0;
+      if (counts[editMode] >= 10) counts[editMode] = 0;
       editMode = null;
       saveData();
       render();
     }
 
-    function closeModal() {
-      showModal = null;
-      render();
-    }
-
     function render() {
-      const todayClasses = getTodayClasses();
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const today = dayNames[new Date().getDay()];
+      const dayOfWeek = new Date().getDay();
+      const todayClasses = SCHEDULE[dayOfWeek] || [];
       const notifState = Notification.permission;
 
-      const app = document.getElementById('app');
-      app.innerHTML = `
-        <div class="max-w-md mx-auto min-h-screen pb-20 relative">
-          
+      document.getElementById('app').innerHTML = `
+        <div class="max-w-md mx-auto">
           <!-- Header -->
-          <div class="bg-indigo-600 text-white p-6 pb-12 rounded-b-3xl shadow-lg">
-            <div class="flex justify-between items-start">
-                <div>
-                    <h1 class="text-3xl font-bold">Class Tracker</h1>
-                    <p class="opacity-80">${today}</p>
-                </div>
-                <!-- Permission Icon -->
-                <button onclick="requestNotificationPermission()" class="p-2 bg-indigo-500 rounded-full hover:bg-indigo-400 transition">
-                    ${notifState === 'granted' ? '🔔' : '🔕'}
-                </button>
+          <div class="bg-indigo-600 text-white p-6 pb-8 rounded-b-3xl shadow-lg mb-6">
+            <div class="flex justify-between items-center mb-4">
+              <h1 class="text-2xl font-bold">Class Tracker</h1>
+              <button onclick="requestNotificationPermission()" class="p-2 bg-indigo-500 rounded-full">
+                ${notifState === 'granted' ? '🔔 On' : '🔕 Enable'}
+              </button>
             </div>
-          </div>
-
-          <!-- Content Container -->
-          <div class="px-4 -mt-8">
             
-            <!-- Warning for iOS -->
-            ${!window.navigator.standalone && /iPhone|iPad|iPod/.test(navigator.userAgent) ? `
-              <div class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 rounded shadow-sm text-sm">
-                <p><strong>Tip:</strong> Tap <span class="text-xl">⎋</span> Share -> "Add to Home Screen" for best performance.</p>
-              </div>
-            ` : ''}
-
-            <!-- Today's Classes Card -->
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-6 fade-in">
-              <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                Today's Schedule
-              </h2>
-              
-              <div class="space-y-3">
-                ${todayClasses.length > 0 ? todayClasses.map(className => `
-                  <div class="flex flex-col p-3 bg-slate-50 rounded-xl border border-slate-200">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="font-bold text-lg text-slate-700">${className}</span>
-                        ${todayAttended[className] === true 
-                            ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">Attended</span>' 
-                            : todayAttended[className] === false 
-                                ? '<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full">Missed</span>'
-                                : '<span class="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded-full">Pending</span>'
-                        }
-                    </div>
-                    
-                    <div class="flex gap-2">
-                        <button 
-                          onclick="markAttendance('${className}', false)"
-                          class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[className] === false ? 'bg-red-500 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-red-50'}"
-                        >
-                          Missed
-                        </button>
-                        <button 
-                          onclick="markAttendance('${className}', true)"
-                          class="flex-1 py-2 rounded-lg text-sm font-semibold transition ${todayAttended[className] === true ? 'bg-green-500 text-white shadow-md' : 'bg-white text-slate-600 border hover:bg-green-50'}"
-                        >
-                          Attended
-                        </button>
-                    </div>
-                  </div>
-                `).join('') : '<p class="text-slate-500 text-center py-4">No classes today! 😴</p>'}
-              </div>
-            </div>
-
-            <!-- Stats Grid -->
-            <h2 class="text-lg font-bold text-slate-800 mb-3 ml-1">Progress</h2>
-            <div class="grid grid-cols-2 gap-3 mb-8">
-                ${CLASSES.map(className => `
-                  <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-1">
-                            <span class="text-sm font-medium text-slate-500">${className}</span>
-                            <button onclick="startEdit('${className}')" class="text-slate-300 hover:text-indigo-500">✎</button>
-                        </div>
-                        
-                        ${editMode === className ? `
-                            <div class="flex items-center gap-1">
-                                <input id="edit-input" type="number" value="${editValue}" oninput="editValue=this.value" class="w-full text-lg border rounded p-1">
-                                <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
-                            </div>
-                        ` : `
-                            <div class="text-3xl font-extrabold text-slate-800">
-                                ${counts[className]}<span class="text-sm text-slate-400 font-normal">/10</span>
-                            </div>
-                        `}
-                    </div>
-                    
-                    <!-- Progress Bar Background -->
-                    <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width: ${(counts[className] / 10) * 100}%"></div>
-                  </div>
-                `).join('')}
-            </div>
+            <!-- TEST BUTTON -->
+            <button id="test-btn" onclick="start30sTest()" class="w-full py-3 bg-white text-indigo-600 rounded-xl font-bold shadow-md active:scale-95 transition">
+              ⏱ Test 30s Delay (Press & Minimize)
+            </button>
           </div>
 
-          <!-- Custom Modal Alert (Guaranteed to show on mobile) -->
-          ${showModal ? `
-            <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-                <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center transform scale-100">
-                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                        🎉
-                    </div>
-                    <h3 class="text-2xl font-bold text-slate-800 mb-2">Target Reached!</h3>
-                    <p class="text-slate-600 mb-6">${showModal}</p>
-                    <button onclick="closeModal()" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 active:scale-95 transition">
-                        Awesome!
-                    </button>
+          <div class="px-4 space-y-6">
+            <!-- Schedule -->
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+              <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
+              ${todayClasses.length ? todayClasses.map(cls => `
+                <div class="flex items-center justify-between mb-3 p-2 bg-slate-50 rounded-lg">
+                  <span class="font-medium">${cls}</span>
+                  <div class="flex gap-2">
+                    <button onclick="markAttendance('${cls}', false)" class="${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Missed</button>
+                    <button onclick="markAttendance('${cls}', true)" class="${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border'} px-3 py-1 rounded text-sm">Attended</button>
+                  </div>
                 </div>
+              `).join('') : '<p class="text-center text-slate-400">No classes</p>'}
             </div>
-          ` : ''}
 
+            <!-- Stats -->
+            <div class="grid grid-cols-2 gap-3">
+              ${CLASSES.map(cls => `
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
+                  <div class="flex justify-between mb-1">
+                    <span class="text-sm text-slate-500">${cls}</span>
+                    <button onclick="startEdit('${cls}')">✎</button>
+                  </div>
+                  ${editMode === cls ? `
+                    <div class="flex gap-1">
+                      <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded px-1">
+                      <button onclick="saveEdit()" class="bg-indigo-500 text-white px-2 rounded">✓</button>
+                    </div>
+                  ` : `
+                    <div class="text-3xl font-bold">${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span></div>
+                  `}
+                  <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
         </div>
       `;
     }
 
     // Expose functions
+    window.start30sTest = start30sTest;
+    window.requestNotificationPermission = requestNotificationPermission;
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
-    window.requestNotificationPermission = requestNotificationPermission;
-    window.saveEdit = saveEdit;
-    window.closeModal = closeModal;
 
-    // Init
     loadData();
     render();
-    setTimeout(autoAttendClasses, 500); // Slight delay for smoother load
   </script>
 </body>
 </html>
