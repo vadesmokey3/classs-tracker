@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Class Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const SCHEDULE = {
+      1: ['Math', 'Economy'],
+      2: ['Math', 'Essay', 'CS'],
+      3: ['Math'],
+      4: ['Economy'],
+      5: ['Essay', 'Math', 'CS']
+    };
+
+    const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
+
+    let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
+    let todayAttended = {};
+    let editMode = null;
+    let editValue = '';
+    let notification = null;
+
+    function loadData() {
+      const saved = localStorage.getItem('class-counts');
+      if (saved) counts = JSON.parse(saved);
+
+      const today = new Date().toDateString();
+      const lastDate = localStorage.getItem('last-date');
+
+      if (lastDate !== today) {
+        todayAttended = {};
+        localStorage.setItem('today-attended', JSON.stringify({}));
+        localStorage.setItem('last-date', today);
+      } else {
+        const savedToday = localStorage.getItem('today-attended');
+        if (savedToday) todayAttended = JSON.parse(savedToday);
+      }
+    }
+
+    function saveData() {
+      localStorage.setItem('class-counts', JSON.stringify(counts));
+      localStorage.setItem('today-attended', JSON.stringify(todayAttended));
+    }
+
+    function getTodayClasses() {
+      const dayOfWeek = new Date().getDay();
+      return SCHEDULE[dayOfWeek] || [];
+    }
+
+    function autoAttendClasses() {
+      const todayClasses = getTodayClasses();
+      let hasChanges = false;
+
+      todayClasses.forEach(className => {
+        if (todayAttended[className] === undefined) {
+          todayAttended[className] = true;
+          counts[className]++;
+          hasChanges = true;
+
+          if (counts[className] === 10) {
+            showNotification(`🎉 ${className} has reached 10 attendances!`);
+            counts[className] = 0;
+          }
+        }
+      });
+
+      if (hasChanges) {
+        saveData();
+        render();
+      }
+    }
+
+    function markAttendance(className, attended) {
+      todayAttended[className] = attended;
+
+      if (attended) {
+        counts[className]++;
+        if (counts[className] === 10) {
+          showNotification(`🎉 ${className} has reached 10 attendances!`);
+          counts[className] = 0;
+        }
+      } else {
+        counts[className]--;
+      }
+
+      saveData();
+      render();
+    }
+
+    function startEdit(className) {
+      editMode = className;
+      editValue = counts[className].toString();
+      render();
+      setTimeout(() => {
+        const input = document.getElementById('edit-input');
+        if (input) input.focus();
+      }, 0);
+    }
+
+    function saveEdit() {
+      counts[editMode] = parseInt(editValue) || 0;
+      editMode = null;
+      saveData();
+      render();
+    }
+
+    function showNotification(message) {
+      notification = message;
+      render();
+      setTimeout(() => {
+        notification = null;
+        render();
+      }, 4000);
+    }
+
+    function render() {
+      const todayClasses = getTodayClasses();
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const today = dayNames[new Date().getDay()];
+
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+          <div class="max-w-2xl mx-auto">
+            
+            <!-- Header -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+              <h1 class="text-3xl font-bold text-gray-800 mb-2">Class Tracker</h1>
+              <p class="text-gray-600">${today}</p>
+            </div>
+
+            <!-- Notification -->
+            ${notification ? `
+              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                </svg>
+                <span class="font-medium">${notification}</span>
+              </div>
+            ` : ''}
+
+            <!-- Today's Classes -->
+            ${todayClasses.length > 0 ? `
+              <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Today's Classes</h2>
+                <div class="space-y-3">
+                  ${todayClasses.map(className => `
+                    <div class="flex items-center justify-between p-4 bg-blue-50 rounded-xl">
+                      <span class="font-semibold text-gray-800">${className}</span>
+                      <div class="flex items-center gap-3">
+                        ${todayAttended[className] === false ? `
+                          <span class="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600">✗ Missed</span>
+                        ` : todayAttended[className] === true ? `
+                          <span class="px-4 py-2 rounded-lg font-medium bg-green-100 text-green-700">✓ Auto-counted</span>
+                        ` : `
+                          <span class="px-4 py-2 rounded-lg font-medium bg-blue-50 text-blue-700">⏳ Counting...</span>
+                        `}
+                        <button 
+                          onclick="markAttendance('${className}', ${todayAttended[className] !== false})"
+                          class="flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                            todayAttended[className] === false
+                              ? 'bg-green-500 text-white hover:bg-green-600'
+                              : 'bg-red-500 text-white hover:bg-red-600'
+                          }"
+                        >
+                          ${todayAttended[className] === false ? `
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Attended
+                          ` : `
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Missed
+                          `}
+                        </button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : `
+              <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+                <p class="text-gray-600 text-center">No classes today! 🎉</p>
+              </div>
+            `}
+
+            <!-- All Classes Counter -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+              <h2 class="text-xl font-bold text-gray-800 mb-4">Attendance Count</h2>
+              <div class="grid grid-cols-2 gap-4">
+                ${CLASSES.map(className => `
+                  <div class="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="font-semibold text-gray-800">${className}</span>
+                      <button onclick="startEdit('${className}')" class="text-gray-500 hover:text-indigo-600 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    ${editMode === className ? `
+                      <div class="flex gap-2">
+                        <input 
+                          id="edit-input"
+                          type="number" 
+                          value="${editValue}"
+                          oninput="editValue = this.value"
+                          class="w-20 px-2 py-1 border border-gray-300 rounded"
+                        />
+                        <button onclick="saveEdit()" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm">
+                          Save
+                        </button>
+                      </div>
+                    ` : `
+                      <div class="text-3xl font-bold text-indigo-600">${counts[className]}/10</div>
+                    `}
+                    <div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div class="h-full bg-indigo-500 transition-all duration-500" style="width: ${(counts[className] / 10) * 100}%"></div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="mt-6 text-center text-sm text-gray-600">
+              <p>Classes are counted automatically each day.</p>
+              <p>Toggle "Missed"/"Attended" button to adjust count.</p>
+              <p>Click the edit icon to manually adjust counts anytime.</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Make functions globally accessible
+    window.markAttendance = markAttendance;
+    window.startEdit = startEdit;
+    window.saveEdit = saveEdit;
+
+    // Initialize
+    loadData();
+    render();
+    setTimeout(autoAttendClasses, 100);
+  </script>
+</body>
+</html>
