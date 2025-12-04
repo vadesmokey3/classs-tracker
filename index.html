@@ -27,6 +27,31 @@
     let editMode = null;
     let editValue = '';
     let notification = null;
+    let notificationPermission = 'default';
+
+    // Request notification permission on load
+    async function requestNotificationPermission() {
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission();
+        notificationPermission = permission;
+        render();
+      }
+    }
+
+    function sendPushNotification(message) {
+      // Show in-app notification
+      showNotification(message);
+      
+      // Send push notification if permitted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Class Tracker', {
+          body: message,
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">📚</text></svg>',
+          badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">📚</text></svg>',
+          vibrate: [200, 100, 200]
+        });
+      }
+    }
 
     function loadData() {
       const saved = localStorage.getItem('class-counts');
@@ -42,6 +67,11 @@
       } else {
         const savedToday = localStorage.getItem('today-attended');
         if (savedToday) todayAttended = JSON.parse(savedToday);
+      }
+
+      // Check notification permission
+      if ('Notification' in window) {
+        notificationPermission = Notification.permission;
       }
     }
 
@@ -66,7 +96,7 @@
           hasChanges = true;
 
           if (counts[className] === 10) {
-            showNotification(`🎉 ${className} has reached 10 attendances!`);
+            sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
             counts[className] = 0;
           }
         }
@@ -84,7 +114,7 @@
       if (attended) {
         counts[className]++;
         if (counts[className] === 10) {
-          showNotification(`🎉 ${className} has reached 10 attendances!`);
+          sendPushNotification(`🎉 ${className} has reached 10 attendances!`);
           counts[className] = 0;
         }
       } else {
@@ -106,7 +136,15 @@
     }
 
     function saveEdit() {
-      counts[editMode] = parseInt(editValue) || 0;
+      const newValue = parseInt(editValue) || 0;
+      counts[editMode] = newValue;
+      
+      // Check if manually set to 10
+      if (newValue === 10) {
+        sendPushNotification(`🎉 ${editMode} has reached 10 attendances!`);
+        counts[editMode] = 0;
+      }
+      
       editMode = null;
       saveData();
       render();
@@ -137,9 +175,44 @@
               <p class="text-gray-600">${today}</p>
             </div>
 
+            <!-- Notification Permission Banner -->
+            ${notificationPermission === 'default' ? `
+              <div class="bg-blue-500 text-white rounded-xl p-4 mb-6 shadow-lg">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                    </svg>
+                    <span class="font-medium">Enable push notifications to get alerts when you reach 10 attendances!</span>
+                  </div>
+                  <button onclick="requestNotificationPermission()" class="ml-4 px-4 py-2 bg-white text-blue-500 rounded-lg font-semibold hover:bg-blue-50">
+                    Enable
+                  </button>
+                </div>
+              </div>
+            ` : notificationPermission === 'denied' ? `
+              <div class="bg-red-500 text-white rounded-xl p-4 mb-6 shadow-lg">
+                <div class="flex items-center">
+                  <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="text-sm">Push notifications are blocked. Enable them in your browser settings to receive alerts.</span>
+                </div>
+              </div>
+            ` : `
+              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 shadow-lg">
+                <div class="flex items-center">
+                  <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="font-medium">✓ Push notifications enabled!</span>
+                </div>
+              </div>
+            `}
+
             <!-- Notification -->
             ${notification ? `
-              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg">
+              <div class="bg-green-500 text-white rounded-xl p-4 mb-6 flex items-center shadow-lg animate-pulse">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                 </svg>
@@ -237,6 +310,7 @@
               <p>Classes are counted automatically each day.</p>
               <p>Toggle "Missed"/"Attended" button to adjust count.</p>
               <p>Click the edit icon to manually adjust counts anytime.</p>
+              <p class="mt-2 text-xs text-gray-500">💡 Keep the app open once per day for automatic counting</p>
             </div>
           </div>
         </div>
@@ -247,6 +321,7 @@
     window.markAttendance = markAttendance;
     window.startEdit = startEdit;
     window.saveEdit = saveEdit;
+    window.requestNotificationPermission = requestNotificationPermission;
 
     // Initialize
     loadData();
