@@ -6,117 +6,128 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Class Tracker">
-  <title>Class Tracker</title>
+  <title>Class Tracker Debug</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
   <link rel="manifest" href='data:application/manifest+json,{"name":"Class Tracker","short_name":"Tracker","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#4F46E5","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3389/3389081.png","sizes":"192x192","type":"image/png"}]}' />
   <style>
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-    button { touch-action: manipulation; }
+    /* Console Style */
+    #console-log { font-family: monospace; font-size: 12px; line-height: 1.4; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
-  <!-- iOS INSTRUCTION BANNER -->
-  <div id="ios-guide" class="bg-slate-800 text-white p-4 text-center hidden">
-    <p class="font-bold text-yellow-400 text-lg">⚠️ STOP!</p>
-    <p class="mt-2">You are running this in a <strong>Browser Tab</strong>.</p>
-    <p class="mt-2">Apple <strong>BLOCKS</strong> notifications here.</p>
-    <div class="mt-4 bg-slate-700 p-3 rounded-lg text-left text-sm">
-      <p>1. Tap the <strong>Share Button</strong> <span class="text-xl">⎋</span></p>
-      <p>2. Scroll down & tap <strong>Add to Home Screen</strong></p>
-      <p>3. Close Safari.</p>
-      <p>4. Open the <strong>New Icon</strong> on your home screen.</p>
+  <!-- DIAGNOSTIC CONSOLE -->
+  <div class="bg-black text-green-400 p-4 sticky top-0 z-50 shadow-xl overflow-y-auto max-h-60 border-b-4 border-indigo-500">
+    <div class="flex justify-between items-center mb-2 border-b border-green-800 pb-2">
+      <h3 class="font-bold">🖥️ DIAGNOSTIC LOG</h3>
+      <button onclick="document.getElementById('console-log').innerHTML=''" class="text-xs bg-gray-800 px-2 py-1 rounded">Clear</button>
     </div>
-  </div>
-
-  <!-- TEST BUTTON -->
-  <div class="bg-indigo-900 p-4 sticky top-0 z-50 shadow-xl text-center">
-    <button onclick="handleTestClick()" id="test-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-lg border-2 border-white shadow-lg animate-pulse active:scale-95 transition-transform">
-      🔔 TEST PERMISSION
+    <div id="console-log" class="space-y-1">Waiting for user input...</div>
+    
+    <button onclick="runDiagnostics()" class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded text-sm border border-white">
+      ▶ START DIAGNOSTIC TEST
     </button>
   </div>
 
-  <div id="app"></div>
+  <div id="app" class="pt-4"></div>
   
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. DETECT IF IN APP MODE ---
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
-
-    // Show guide if in Safari Tab
-    if (isIOS && !isStandalone) {
-      document.getElementById('ios-guide').classList.remove('hidden');
-      document.getElementById('test-btn').innerText = "⚠️ READ INSTRUCTIONS ABOVE";
-      document.getElementById('test-btn').classList.remove('bg-red-600', 'animate-pulse');
-      document.getElementById('test-btn').classList.add('bg-slate-500');
+    // --- LOGGER FUNCTION ---
+    function log(msg, type = 'info') {
+      const consoleDiv = document.getElementById('console-log');
+      const time = new Date().toLocaleTimeString().split(' ')[0];
+      const color = type === 'error' ? 'text-red-400' : (type === 'success' ? 'text-white font-bold' : 'text-green-400');
+      consoleDiv.innerHTML += `<div class="${color}">[${time}] ${msg}</div>`;
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
     }
 
-    // --- 2. CLICK HANDLER ---
-    async function handleTestClick() {
+    // --- MAIN TEST FUNCTION ---
+    async function runDiagnostics() {
+      log('------------------------');
+      log('Starting System Check...', 'info');
+
+      // 1. Check iOS Environment
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+      
+      log(`Device: ${isIOS ? 'iOS Detected' : 'Not iOS'}`);
+      log(`Mode: ${isStandalone ? 'Home Screen App (Good)' : 'Browser Tab (Might Fail)'}`);
+
       if (isIOS && !isStandalone) {
-        alert("⛔️ STOP! \n\nYou are in a Safari Tab. Apple BLOCKS notifications here.\n\nPlease tap Share -> 'Add to Home Screen' and open the app icon.");
+        log('❌ WARNING: Notifications usually BLOCKED in Tabs. Add to Home Screen.', 'error');
+        alert("⚠️ WARNING: You are not using the Home Screen App. Notifications will likely fail.");
+      }
+
+      // 2. Check API Support
+      if (!('Notification' in window)) {
+        log('❌ CRITICAL: Notification API missing.', 'error');
+        log('Update to iOS 16.4+ is required.', 'error');
+        return;
+      }
+      log('API Support: OK');
+
+      // 3. Check Current Permission
+      const currentPerm = Notification.permission;
+      log(`Current Permission: "${currentPerm}"`);
+
+      if (currentPerm === 'denied') {
+        log('❌ BLOCKED: User denied permission previously.', 'error');
+        log('Fix: iOS Settings > Notifications > Class Tracker > ON', 'error');
+        alert("⛔ PERMISSION DENIED in Settings.");
         return;
       }
 
-      // If we are here, we are likely in App Mode
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-          start30sTest();
-        } else {
-          alert("❌ PERMISSION DENIED\n\nYou might have clicked 'Don't Allow' before.\n\nGo to iPhone Settings -> Notifications -> Class Tracker -> Turn ON.");
+      // 4. Request Permission
+      if (currentPerm === 'default') {
+        log('Requesting Permission now...', 'info');
+        try {
+          const perm = await Notification.requestPermission();
+          log(`User responded: "${perm}"`, perm === 'granted' ? 'success' : 'error');
+          if (perm !== 'granted') return;
+        } catch (e) {
+          log(`❌ Request Crashed: ${e.message}`, 'error');
+          return;
         }
-      } catch (e) {
-        alert("Error: " + e.message);
       }
-    }
 
-    // --- 3. THE ACTUAL TEST ---
-    function start30sTest() {
-      // Play silent audio to keep app awake
+      // 5. Send Test
+      log('Attempting to send notification...', 'info');
+      
+      // Try Audio
       const audio = document.getElementById('notif-sound');
-      if(audio) { audio.volume = 0.1; audio.play().catch(()=>{}); }
-
-      let timeLeft = 5;
-      const btn = document.getElementById('test-btn');
-      btn.innerText = "⏳ KEEP APP OPEN (5s)...";
-      btn.className = "w-full bg-yellow-500 text-white font-bold py-3 rounded-xl shadow-lg";
-
-      const interval = setInterval(() => {
-        timeLeft--;
-        if (timeLeft <= 0) {
-          clearInterval(interval);
-          btn.innerText = "🔔 SENT!";
-          btn.className = "w-full bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg";
-          if(audio) audio.volume = 1.0;
-          triggerPushNotification("ΕΙΔΟΠΟΙΗΣΗ", "Test Successful! ✅");
-        } else {
-          btn.innerText = `⏳ WAIT ${timeLeft}s...`;
-        }
-      }, 1000);
-    }
-
-    // --- 4. NOTIFICATION LOGIC ---
-    function triggerPushNotification(title, body) {
-      try {
-        const audio = document.getElementById('notif-sound');
-        if (audio) { audio.currentTime = 0; audio.play().catch(()=>{}); }
-        if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-        
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
-        } else {
-          new Notification(title, { body, icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png' });
-        }
-      } catch (e) {
-        console.error(e);
+      if(audio) {
+        audio.play().then(() => log('Audio: Playing')).catch(e => log('Audio: Failed (User interaction needed)'));
       }
+
+      // Try Service Worker (Preferred for iOS)
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        log('Sending via Service Worker...', 'info');
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SHOW_NOTIFICATION',
+          title: 'DIAGNOSTIC TEST',
+          body: 'If you see this, it works!'
+        });
+        log('Signal Sent to SW.', 'success');
+      } 
+      // Fallback
+      else {
+        log('Service Worker not ready. Using Fallback.', 'info');
+        try {
+          new Notification('DIAGNOSTIC TEST', { body: 'Direct Notification' });
+          log('Direct Notification fired.', 'success');
+        } catch (e) {
+          log(`❌ Direct Fail: ${e.message}`, 'error');
+        }
+      }
+
+      log('✅ TEST COMPLETE. Wait 5s for banner.', 'success');
     }
 
-    // --- SERVICE WORKER ---
+    // --- SERVICE WORKER REGISTRATION ---
     if ('serviceWorker' in navigator) {
       const swCode = `
         self.addEventListener('install', (e) => self.skipWaiting());
@@ -126,15 +137,17 @@
             self.registration.showNotification(e.data.title, {
               body: e.data.body,
               icon: 'https://cdn-icons-png.flaticon.com/512/3389/3389081.png'
-            });
+            }).catch(err => console.error('SW Notif Error:', err));
           }
         });
       `;
       const blob = new Blob([swCode], {type: 'application/javascript'});
-      navigator.serviceWorker.register(URL.createObjectURL(blob));
+      navigator.serviceWorker.register(URL.createObjectURL(blob))
+        .then(() => log('Service Worker: Registered', 'info'))
+        .catch(e => log(`SW Error: ${e.message}`, 'error'));
     }
 
-    // --- APP LOGIC ---
+    // --- APP LOGIC (Hidden under console) ---
     const SCHEDULE = { 1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'], 4: ['Economy'], 5: ['Essay', 'Math', 'CS'] };
     const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
     let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
@@ -164,14 +177,13 @@
       const dayOfWeek = new Date().getDay();
       const todayClasses = SCHEDULE[dayOfWeek] || [];
       let hasChanges = false;
-      let notificationQueue = [];
 
       todayClasses.forEach(className => {
         if (todayAttended[className] === undefined) {
           todayAttended[className] = true;
           counts[className]++;
           hasChanges = true;
-          if (counts[className] === 9) notificationQueue.push(`πληρωσε στο επομενο μαθημα την ${className}`);
+          if (counts[className] === 9) runDiagnostics(); // Trigger debug on event
           if (counts[className] >= 10) counts[className] = 0;
         }
       });
@@ -179,41 +191,37 @@
       if (hasChanges) {
         saveData();
         render();
-        if (notificationQueue.length > 0) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', notificationQueue[0]), 100);
       }
     }
 
     function markAttendance(className, isAttending) {
       const prev = todayAttended[className];
       todayAttended[className] = isAttending;
-      let shouldNotify = false;
 
       if (isAttending) {
         if (prev !== true) counts[className]++;
-        if (counts[className] === 9) shouldNotify = true;
+        if (counts[className] === 9) runDiagnostics(); // Trigger debug
         if (counts[className] >= 10) counts[className] = 0;
       } else {
         if (prev === true && counts[className] > 0) counts[className]--;
       }
       saveData(); render();
-      if (shouldNotify) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 50);
     }
 
     function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
     function saveEdit() {
       const val = parseInt(editValue) || 0;
       counts[editMode] = val;
-      let shouldNotify = (val === 9);
+      if (val === 9) runDiagnostics();
       if (val >= 10) counts[editMode] = 0;
       editMode = null; saveData(); render();
-      if (shouldNotify) setTimeout(() => triggerPushNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 50);
     }
 
     function render() {
       const dayOfWeek = new Date().getDay();
       const todayClasses = SCHEDULE[dayOfWeek] || [];
       document.getElementById('app').innerHTML = `
-        <div class="max-w-md mx-auto mt-4 px-4">
+        <div class="max-w-md mx-auto px-4">
           <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
             <h2 class="font-bold text-slate-700 mb-3">Today's Classes</h2>
             ${todayClasses.length ? todayClasses.map(cls => `
@@ -223,8 +231,8 @@
                   ${todayAttended[cls] === true ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
                 </div>
                 <div class="flex gap-2">
-                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border text-slate-600'}">Missed</button>
-                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm transition active:scale-95 ${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border text-slate-600'}">Attended</button>
+                  <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm ${todayAttended[cls]===false ? 'bg-red-500 text-white' : 'bg-white border text-slate-600'}">Missed</button>
+                  <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold shadow-sm ${todayAttended[cls]===true ? 'bg-green-500 text-white' : 'bg-white border text-slate-600'}">Attended</button>
                 </div>
               </div>
             `).join('') : '<p class="text-center text-slate-400">No classes today</p>'}
