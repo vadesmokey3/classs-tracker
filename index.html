@@ -13,49 +13,39 @@
   <title>Class Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- LINK TO YOUR MANIFEST FILE -->
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3389/3389081.png">
 
   <style>
-    /* iOS visual tweaks */
     body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-    /* Smooth hiding */
-    .hidden { display: none; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 pb-20">
 
   <div id="app" class="max-w-md mx-auto"></div>
-  
-  <!-- Audio for notification sound -->
   <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
 
   <script>
-    // --- 1. NOTIFICATION SYSTEM ---
+    // --- 1. NOTIFICATIONS ---
     async function requestPermission() {
       try {
         const p = await Notification.requestPermission();
         if (p === 'granted') {
           triggerNotification("Setup Complete", "Notifications are active! ✅");
-          render(); // Re-render to hide the bell button
+          render();
         } else {
-          alert("Notifications blocked. Check iPhone Settings.");
+          alert("Notifications blocked. Check Browser Settings.");
         }
       } catch (e) {
-        alert("Error: Add app to Home Screen first.");
+        alert("Error: " + e.message);
       }
     }
 
     function triggerNotification(title, body) {
-      // Audio
       const audio = document.getElementById('notif-sound');
       if (audio) { audio.currentTime = 0; audio.play().catch(()=>{}); }
-      
-      // Vibrate
       if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
       
-      // Visual
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
       } else if (Notification.permission === 'granted') {
@@ -70,19 +60,15 @@
       navigator.serviceWorker.register(URL.createObjectURL(blob));
     }
 
-    // --- 3. APP DATA & LOGIC ---
+    // --- 3. LOGIC ---
     const SCHEDULE = {
-      1: ['Math', 'Economy'], 
-      2: ['Math', 'Essay', 'CS'], 
-      3: ['Math'], 
-      4: ['Economy'], 
-      5: ['Essay', 'Math', 'CS']
+      1: ['Math', 'Economy'], 2: ['Math', 'Essay', 'CS'], 3: ['Math'], 
+      4: ['Economy'], 5: ['Essay', 'Math', 'CS']
     };
     const CLASSES = ['Math', 'Economy', 'CS', 'Essay'];
     let counts = { Math: 0, Economy: 0, CS: 0, Essay: 0 };
     let todayAttended = {};
-    let editMode = null;
-    let editValue = '';
+    let editMode = null, editValue = '';
 
     function loadData() {
       const saved = localStorage.getItem('class-counts-v2');
@@ -117,11 +103,7 @@
           todayAttended[className] = true;
           counts[className]++;
           hasChanges = true;
-
-          // NOTIFY AT 9
           if (counts[className] === 9) notifyFor = className;
-          
-          // SILENT RESET AT 10
           if (counts[className] >= 10) counts[className] = 0;
         }
       });
@@ -140,107 +122,53 @@
 
       if (isAttending) {
         if (prev !== true) counts[className]++;
-        
-        // Notify at 9
         if (counts[className] === 9) shouldNotify = true;
-        
-        // Reset at 10
         if (counts[className] >= 10) counts[className] = 0;
       } else {
         if (prev === true && counts[className] > 0) counts[className]--;
       }
-
-      saveData();
-      render();
-      
-      if (shouldNotify) {
-        setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 100);
-      }
+      saveData(); render();
+      if (shouldNotify) setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${className}`), 100);
     }
 
-    function startEdit(className) { editMode = className; editValue = counts[className]; render(); }
-    
+    function startEdit(c) { editMode = c; editValue = counts[c]; render(); }
     function saveEdit() {
-      const val = parseInt(editValue) || 0;
-      counts[editMode] = val;
-      
-      let shouldNotify = (val === 9);
-      if (val >= 10) counts[editMode] = 0;
-      
-      editMode = null; 
-      saveData(); 
-      render();
-      
-      if (shouldNotify) {
-        setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${val === 9 ? counts[editMode] : 'Class'}`), 100);
-      }
+      const v = parseInt(editValue) || 0;
+      counts[editMode] = v;
+      let shouldNotify = (v === 9);
+      if (v >= 10) counts[editMode] = 0;
+      editMode = null; saveData(); render();
+      if (shouldNotify) setTimeout(() => triggerNotification('⚠️ ΕΙΔΟΠΟΙΗΣΗ', `πληρωσε στο επομενο μαθημα την ${v === 9 ? counts[editMode] : 'Class'}`), 100);
     }
 
-    // --- 4. RENDER UI ---
+    // --- 4. RENDER ---
     function render() {
       const dayOfWeek = new Date().getDay();
       const todayClasses = SCHEDULE[dayOfWeek] || [];
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      
-      // Check if permission is needed (to show/hide bell icon)
       const needsPerm = Notification.permission !== 'granted';
 
       document.getElementById('app').innerHTML = `
-        <!-- HEADER -->
         <div class="bg-indigo-900 text-white p-6 rounded-b-3xl shadow-lg mb-6 flex justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-bold">Class Tracker</h1>
-                <p class="text-indigo-200 text-sm">${dayNames[dayOfWeek]}</p>
-            </div>
-            ${needsPerm ? `
-            <button onclick="requestPermission()" class="bg-yellow-500 text-white p-2 rounded-full shadow-lg animate-bounce">
-                🔔
-            </button>` : ''}
+            <div><h1 class="text-2xl font-bold">Class Tracker</h1><p class="text-indigo-200 text-sm">${dayNames[dayOfWeek]}</p></div>
+            ${needsPerm ? `<button onclick="requestPermission()" class="bg-yellow-500 text-white p-2 rounded-full shadow-lg animate-bounce">🔔</button>` : ''}
         </div>
-
         <div class="px-4">
-           <!-- TODAY'S SCHEDULE -->
            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
-             <h2 class="font-bold text-slate-700 mb-3 flex items-center gap-2">
-                📅 Today's Classes
-             </h2>
+             <h2 class="font-bold text-slate-700 mb-3 flex items-center gap-2">📅 Today's Classes</h2>
              ${todayClasses.length ? todayClasses.map(cls => `
                <div class="flex flex-col mb-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                 <div class="flex justify-between items-center mb-2">
-                   <span class="font-bold text-lg">${cls}</span>
-                   ${todayAttended[cls] === true ? 
-                     '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}
-                 </div>
-                 <div class="flex gap-2">
-                   <button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white shadow' : 'bg-white border text-slate-600'}">Missed</button>
-                   <button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===true ? 'bg-green-500 text-white shadow' : 'bg-white border text-slate-600'}">Attended</button>
-                 </div>
-               </div>
-             `).join('') : '<p class="text-center text-slate-400 py-4">No classes today! 😴</p>'}
+                 <div class="flex justify-between items-center mb-2"><span class="font-bold text-lg">${cls}</span>${todayAttended[cls] === true ? '<span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full">✓ Auto-counted</span>' : ''}</div>
+                 <div class="flex gap-2"><button onclick="markAttendance('${cls}', false)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===false ? 'bg-red-500 text-white shadow' : 'bg-white border text-slate-600'}">Missed</button><button onclick="markAttendance('${cls}', true)" class="flex-1 py-3 rounded-lg text-sm font-semibold transition active:scale-95 ${todayAttended[cls]===true ? 'bg-green-500 text-white shadow' : 'bg-white border text-slate-600'}">Attended</button></div>
+               </div>`).join('') : '<p class="text-center text-slate-400 py-4">No classes today! 😴</p>'}
            </div>
-
-           <!-- COUNTERS -->
            <div class="grid grid-cols-2 gap-3 mb-10">
              ${CLASSES.map(cls => `
                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                 <div class="flex justify-between mb-1 items-start">
-                   <span class="text-sm font-semibold text-slate-500">${cls}</span>
-                   <button onclick="startEdit('${cls}')" class="text-slate-300 p-1 hover:text-indigo-500">✎</button>
-                 </div>
-                 
-                 ${editMode === cls ? `
-                   <div class="flex gap-1 items-center mt-2">
-                     <input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded p-1 text-center font-bold">
-                     <button onclick="saveEdit()" class="bg-indigo-500 text-white px-3 py-1 rounded font-bold">✓</button>
-                   </div>
-                 ` : `
-                   <div class="text-3xl font-bold mt-1 ${counts[cls] === 9 ? 'text-red-600 animate-pulse' : 'text-slate-800'}">
-                     ${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span>
-                   </div>
-                 `}
+                 <div class="flex justify-between mb-1 items-start"><span class="text-sm font-semibold text-slate-500">${cls}</span><button onclick="startEdit('${cls}')" class="text-slate-300 p-1 hover:text-indigo-500">✎</button></div>
+                 ${editMode === cls ? `<div class="flex gap-1 items-center mt-2"><input type="number" value="${editValue}" oninput="editValue=this.value" class="w-full border rounded p-1 text-center font-bold"><button onclick="saveEdit()" class="bg-indigo-500 text-white px-3 py-1 rounded font-bold">✓</button></div>` : `<div class="text-3xl font-bold mt-1 ${counts[cls] === 9 ? 'text-red-600 animate-pulse' : 'text-slate-800'}">${counts[cls]}<span class="text-sm font-normal text-slate-400">/10</span></div>`}
                  <div class="absolute bottom-0 left-0 h-1 bg-indigo-500 transition-all duration-500" style="width:${(counts[cls]/10)*100}%"></div>
-               </div>
-             `).join('')}
+               </div>`).join('')}
            </div>
         </div>
       `;
@@ -249,7 +177,17 @@
     // --- INITIALIZE ---
     loadData();
     render();
-    setTimeout(autoAttendClasses, 200);
+    autoAttendClasses(); // Run once on load
+
+    // --- FIREFOX FIX: Run again when user switches back to this tab ---
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        console.log("App visible again: Checking attendance...");
+        loadData();
+        render();
+        autoAttendClasses();
+      }
+    });
   </script>
 </body>
 </html>
